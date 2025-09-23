@@ -1,0 +1,3 @@
+# Requirements for Pathfinder
+
+# Note: Maya is not installable via pip, ensure Maya is installed
