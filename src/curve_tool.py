@@ -10,6 +10,8 @@ def create_ep_curve_with_controls(num_points):
     """
     Creates an EP curve (linear NURBS) with the specified number of points,
     each with a NURBS curve control that can deform the curve.
+    Adds a master control and organizes everything under a top group.
+    The main path curve is non-selectable, and the master control size is reduced by 50%.
     """
     if num_points < 2:
         cmds.error("Number of points must be at least 2.")
@@ -22,8 +24,15 @@ def create_ep_curve_with_controls(num_points):
     # Create the EP curve (degree 3 for smoother curves)
     curve = cmds.curve(name='ep_curve', p=points, degree=3)
 
+    # Make the curve non-selectable
+    cmds.setAttr(f'{curve}.overrideEnabled', 1)
+    cmds.setAttr(f'{curve}.overrideDisplayType', 2)  # 2 = Reference, making it non-selectable
+
+    # Create a top-level group
+    top_group = cmds.group(empty=True, name='creaturePathTool')
+
     # Create a root group to contain all controls
-    root_group = cmds.group(empty=True, name='curve_controls_grp')
+    root_group = cmds.group(empty=True, name='curve_controls_grp', parent=top_group)
 
     # Create NURBS controls for each point
     for i in range(num_points):
@@ -41,8 +50,19 @@ def create_ep_curve_with_controls(num_points):
         cmds.expression(name=f'cv_{i}_y', string=f'{curve}.controlPoints[{i}].yValue = {control}.translateY')
         cmds.expression(name=f'cv_{i}_z', string=f'{curve}.controlPoints[{i}].zValue = {control}.translateZ')
 
+    # Create a master control
+    master_control = cmds.circle(name='master_control', radius=0.5, normal=(0,1,0))[0]  # Reduced size by 50%
+    cmds.xform(master_control, translation=(0, 0, 0))
+    cmds.makeIdentity(master_control, apply=True, rotate=True, scale=True)
+
+    # Parent the curve and root group under the master control
+    cmds.parent(curve, root_group, master_control)
+
+    # Parent the master control under the top group
+    cmds.parent(master_control, top_group)
+
     cmds.select(curve)
-    cmds.warning(f"EP Curve created with {num_points} NURBS controls.")
+    cmds.warning(f"EP Curve created with {num_points} NURBS controls, a master control, and organized under 'creaturePathTool'.")
 
 def create_ui():
     """
