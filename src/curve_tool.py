@@ -134,21 +134,63 @@ def connect_secondary_controls(secondary_controls):
             else:
                 cmds.warning(f"Secondary control '{control}' does not exist and was skipped.")
 
-def connect_to_ep_curve(main_control, secondary_controls):
+def connect_to_ep_curve(controls):
     """
-    Connects the main control and each secondary control to the EP curve.
+    Connects all specified controls to the EP curve.
+    For each control:
+    - Create a locator named after the control.
+    - Parent the locator under the main pathLocator.
+    - Constrain the locator to the control.
+    - Bake the locator's animation.
+    - Create a NURBS control named after the control.
+    - Match the NURBS control's position and rotation to the locator.
+    - Constrain the NURBS control to the locator.
+    - Constrain the control to the NURBS control.
     """
-    # Connect the main control
-    if main_control:
-        connect_object_to_curve(main_control)
+    if controls:
+        path_locator = cmds.ls("pathLocator", type="transform")
+        if not path_locator:
+            cmds.error("Main pathLocator not found. Please create the EP curve first.")
+            return
 
-    # Connect each secondary control
-    if secondary_controls:
-        for control in secondary_controls.split(", "):
+        path_locator = path_locator[0]  # Use the first found pathLocator
+
+        for control in controls.split(", "):
             if cmds.objExists(control):
-                connect_object_to_curve(control)
+                # Create a locator named after the control
+                locator = cmds.spaceLocator(name=f"{control}_locator")[0]
+
+                # Parent the locator under the main pathLocator
+                cmds.parent(locator, path_locator)
+
+                # Constrain the locator to the control
+                cmds.parentConstraint(control, locator, maintainOffset=False)
+
+                # Bake the locator's animation
+                cmds.bakeResults(locator, simulation=True, time=(cmds.playbackOptions(query=True, minTime=True),
+                                                                cmds.playbackOptions(query=True, maxTime=True)))
+
+                # Create a NURBS control named after the control
+                nurbs_control = cmds.circle(name=f"{control}_control", radius=1.0, normal=(0, 1, 0))[0]
+
+                # Match the NURBS control's position and rotation to the locator
+                locator_position = cmds.xform(locator, query=True, worldSpace=True, translation=True)
+                locator_rotation = cmds.xform(locator, query=True, worldSpace=True, rotation=True)
+                cmds.xform(nurbs_control, worldSpace=True, translation=locator_position)
+                cmds.xform(nurbs_control, worldSpace=True, rotation=locator_rotation)
+
+                # Freeze transformations on the NURBS control
+                cmds.makeIdentity(nurbs_control, apply=True, translate=True, rotate=True, scale=True)
+
+                # Constrain the NURBS control to the locator
+                cmds.parentConstraint(locator, nurbs_control, maintainOffset=False)
+
+                # Constrain the control to the NURBS control
+                cmds.parentConstraint(nurbs_control, control, maintainOffset=False)
+
+                cmds.warning(f"Connected {control} to the EP curve with a locator and NURBS control.")
             else:
-                cmds.warning(f"Secondary control '{control}' does not exist and was skipped.")
+                cmds.warning(f"Control '{control}' does not exist and was skipped.")
 
 def create_ui():
     """
@@ -170,14 +212,6 @@ def create_ui():
 
     cmds.separator(height=10, style="in")
 
-    # Main Control Field
-    cmds.text(label="Main Control:")
-    main_control_field = cmds.textField()
-
-    cmds.button(label="Add Selected Object to Main Control", command=lambda x: cmds.textField(main_control_field, edit=True, text=cmds.ls(selection=True)[0] if cmds.ls(selection=True) else ""))
-
-    cmds.separator(height=10, style="in")
-
     # Secondary Controls Field
     cmds.text(label="Secondary Controls:")
     secondary_controls_field = cmds.textField()
@@ -186,11 +220,7 @@ def create_ui():
 
     cmds.separator(height=10, style="in")
 
-    cmds.button(label="Connect Main Control to EP Curve", command=lambda x: connect_object_to_curve(
-        cmds.textField(main_control_field, query=True, text=True)
-    ))
-
-    cmds.button(label="Connect Secondary Controls to EP Curve", command=lambda x: connect_secondary_controls(
+    cmds.button(label="Connect Controls to EP Curve", command=lambda x: connect_to_ep_curve(
         cmds.textField(secondary_controls_field, query=True, text=True)
     ))
 
