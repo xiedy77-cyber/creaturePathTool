@@ -11,6 +11,7 @@ def create_ep_curve_with_controls(num_points):
     Creates an EP curve (linear NURBS) with the specified number of points,
     each with a NURBS curve control that can deform the curve.
     Adds a master control, creates a locator, and attaches it to the path animation.
+    Also creates a child locator under the main locator.
     """
     if num_points < 2:
         cmds.error("Number of points must be at least 2.")
@@ -72,8 +73,13 @@ def create_ep_curve_with_controls(num_points):
                        startTimeU=cmds.playbackOptions(query=True, minTime=True),
                        endTimeU=cmds.playbackOptions(query=True, maxTime=True))
 
+    # Create a child locator under the main locator
+    child_locator = cmds.spaceLocator(name='childLocator')[0]
+    cmds.parent(child_locator, locator)
+    cmds.xform(child_locator, translation=(0, 1, 0))  # Offset the child locator slightly
+
     cmds.select(curve)
-    cmds.warning(f"EP Curve created with {num_points} NURBS controls, a master control, a locator attached to the path animation, and organized under 'creaturePathTool'.")
+    cmds.warning(f"EP Curve created with {num_points} NURBS controls, a master control, a locator with a child locator attached to the path animation, and organized under 'creaturePathTool'.")
 
 def create_ui():
     """
@@ -107,27 +113,45 @@ def create_ui():
 
 def connect_object_to_curve(object_name):
     """
-    Connects the specified object to the EP curve using the pathAnimation command.
+    Connects the specified object to the EP curve by:
+    - Parent constraining the childLocator to the object without offset.
+    - Baking the childLocator.
+    - Creating a NURBS control parented under the childLocator.
+    - Constraining the object to the NURBS control without offset.
+    - Setting the NURBS control's transforms to 0 to match the childLocator's worldspace transforms.
     """
     if not object_name or not cmds.objExists(object_name):
         cmds.error("Please specify a valid object to connect.")
         return
 
-    # Find the EP curve
-    ep_curve = cmds.ls("creaturePath", type="nurbsCurve") or cmds.ls("creaturePath", type="transform")
-    if not ep_curve:
-        cmds.error("EP curve not found. Please create one first.")
+    # Find the child locator
+    child_locator = cmds.ls("childLocator", type="transform")
+    if not child_locator:
+        cmds.error("Child locator not found. Please create one first.")
         return
 
-    ep_curve = ep_curve[0]  # Use the first found curve
+    child_locator = child_locator[0]  # Use the first found child locator
 
-    # Run the pathAnimation command
-    cmds.pathAnimation(object_name, c=ep_curve, fractionMode=True, follow=True, followAxis="x", upAxis="y",
-                       worldUpType="vector", worldUpVector=(0, 1, 0), inverseUp=False, inverseFront=False, bank=False,
-                       startTimeU=cmds.playbackOptions(query=True, minTime=True),
-                       endTimeU=cmds.playbackOptions(query=True, maxTime=True))
+    # Parent constrain the childLocator to the object without offset
+    cmds.parentConstraint(object_name, child_locator, maintainOffset=False)
 
-    cmds.warning(f"Connected {object_name} to {ep_curve} with path animation.")
+    # Bake the childLocator
+    cmds.bakeResults(child_locator, simulation=True, time=(cmds.playbackOptions(query=True, minTime=True),
+                                                          cmds.playbackOptions(query=True, maxTime=True)))
+
+    # Create a NURBS control parented under the childLocator
+    nurbs_control = cmds.circle(name=f'{object_name}_control', radius=1.0, normal=(0, 1, 0))[0]
+    cmds.parent(nurbs_control, child_locator)
+
+    # Constrain the object to the NURBS control without offset
+    cmds.parentConstraint(nurbs_control, object_name, maintainOffset=False)
+
+    # Set the NURBS control's transforms to 0 to match the childLocator's worldspace transforms
+    cmds.setAttr(f'{nurbs_control}.translate', 0, 0, 0)
+    cmds.setAttr(f'{nurbs_control}.rotate', 0, 0, 0)
+    cmds.setAttr(f'{nurbs_control}.scale', 1, 1, 1)
+
+    cmds.warning(f"Connected {object_name} to the EP curve with a NURBS control under the child locator.")
 
 # To run the tool
 if __name__ == "__main__":
