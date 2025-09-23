@@ -22,7 +22,11 @@ def create_ep_curve_with_controls(num_points):
     points = [(0, 0, i * spacing) for i in range(num_points)]
 
     # Create the EP curve (degree 3 for smoother curves)
-    curve = cmds.curve(name='ep_curve', p=points, degree=3)
+    curve = cmds.curve(name='creaturePath', p=points, degree=3)  # Renamed to 'creaturePath'
+
+    if not cmds.objExists(curve):
+        cmds.error("Failed to create the EP curve. Please try again.")
+        return
 
     # Make the curve non-selectable
     cmds.setAttr(f'{curve}.overrideEnabled', 1)
@@ -67,6 +71,7 @@ def create_ep_curve_with_controls(num_points):
 def create_ui():
     """
     Creates the UI for the Curve Builder tool.
+    Adds functionality to add an object to a field and connect it to the EP curve.
     """
     if cmds.window("curveBuilderWindow", exists=True):
         cmds.deleteUI("curveBuilderWindow")
@@ -81,7 +86,41 @@ def create_ui():
         cmds.intField(num_points_field, query=True, value=True)
     ))
 
+    cmds.separator(height=10, style="in")
+
+    # Add object field and buttons
+    cmds.text(label="Object to Connect:")
+    object_field = cmds.textField()
+
+    cmds.button(label="Add Selected Object", command=lambda x: cmds.textField(object_field, edit=True, text=cmds.ls(selection=True)[0] if cmds.ls(selection=True) else ""))
+
+    cmds.button(label="Connect to EP Curve", command=lambda x: connect_object_to_curve(cmds.textField(object_field, query=True, text=True)))
+
     cmds.showWindow(window)
+
+def connect_object_to_curve(object_name):
+    """
+    Connects the specified object to the EP curve using the pathAnimation command.
+    """
+    if not object_name or not cmds.objExists(object_name):
+        cmds.error("Please specify a valid object to connect.")
+        return
+
+    # Find the EP curve
+    ep_curve = cmds.ls("creaturePath", type="nurbsCurve") or cmds.ls("creaturePath", type="transform")
+    if not ep_curve:
+        cmds.error("EP curve not found. Please create one first.")
+        return
+
+    ep_curve = ep_curve[0]  # Use the first found curve
+
+    # Run the pathAnimation command
+    cmds.pathAnimation(object_name, c=ep_curve, fractionMode=True, follow=True, followAxis="x", upAxis="y",
+                       worldUpType="vector", worldUpVector=(0, 1, 0), inverseUp=False, inverseFront=False, bank=False,
+                       startTimeU=cmds.playbackOptions(query=True, minTime=True),
+                       endTimeU=cmds.playbackOptions(query=True, maxTime=True))
+
+    cmds.warning(f"Connected {object_name} to {ep_curve} with path animation.")
 
 # To run the tool
 if __name__ == "__main__":
