@@ -10,8 +10,7 @@ def create_ep_curve_with_controls(num_points):
     """
     Creates an EP curve (linear NURBS) with the specified number of points,
     each with a NURBS curve control that can deform the curve.
-    Adds a master control and organizes everything under a top group.
-    The main path curve is non-selectable, and the master control size is reduced by 50%.
+    Adds a master control, creates a locator, and attaches it to the path animation.
     """
     if num_points < 2:
         cmds.error("Number of points must be at least 2.")
@@ -65,8 +64,16 @@ def create_ep_curve_with_controls(num_points):
     # Parent the master control under the top group
     cmds.parent(master_control, top_group)
 
+    # Create a locator and attach it to the path animation
+    locator = cmds.spaceLocator(name='pathLocator')[0]
+    cmds.xform(locator, translation=(0, 0, 0))
+    cmds.pathAnimation(locator, c=curve, fractionMode=True, follow=True, followAxis="x", upAxis="y",
+                       worldUpType="vector", worldUpVector=(0, 1, 0), inverseUp=False, inverseFront=False, bank=False,
+                       startTimeU=cmds.playbackOptions(query=True, minTime=True),
+                       endTimeU=cmds.playbackOptions(query=True, maxTime=True))
+
     cmds.select(curve)
-    cmds.warning(f"EP Curve created with {num_points} NURBS controls, a master control, and organized under 'creaturePathTool'.")
+    cmds.warning(f"EP Curve created with {num_points} NURBS controls, a master control, a locator attached to the path animation, and organized under 'creaturePathTool'.")
 
 def create_ui():
     """
