@@ -81,36 +81,6 @@ def create_ep_curve_with_controls(num_points):
     cmds.select(curve)
     cmds.warning(f"EP Curve created with {num_points} NURBS controls, a master control, a locator with a child locator attached to the path animation, and organized under 'creaturePathTool'.")
 
-def create_ui():
-    """
-    Creates the UI for the Curve Builder tool.
-    Adds functionality to add an object to a field and connect it to the EP curve.
-    """
-    if cmds.window("curveBuilderWindow", exists=True):
-        cmds.deleteUI("curveBuilderWindow")
-
-    window = cmds.window("curveBuilderWindow", title="Curve Builder", widthHeight=(300, 200))
-    cmds.columnLayout(adjustableColumn=True)
-
-    cmds.text(label="Number of Points:")
-    num_points_field = cmds.intField(value=5)
-
-    cmds.button(label="Create EP Curve with Controls", command=lambda x: create_ep_curve_with_controls(
-        cmds.intField(num_points_field, query=True, value=True)
-    ))
-
-    cmds.separator(height=10, style="in")
-
-    # Add object field and buttons
-    cmds.text(label="Object to Connect:")
-    object_field = cmds.textField()
-
-    cmds.button(label="Add Selected Object", command=lambda x: cmds.textField(object_field, edit=True, text=cmds.ls(selection=True)[0] if cmds.ls(selection=True) else ""))
-
-    cmds.button(label="Connect to EP Curve", command=lambda x: connect_object_to_curve(cmds.textField(object_field, query=True, text=True)))
-
-    cmds.showWindow(window)
-
 def connect_object_to_curve(object_name):
     """
     Connects the specified object to the EP curve by:
@@ -152,6 +122,79 @@ def connect_object_to_curve(object_name):
     cmds.setAttr(f'{nurbs_control}.scale', 1, 1, 1)
 
     cmds.warning(f"Connected {object_name} to the EP curve with a NURBS control under the child locator.")
+
+def connect_secondary_controls(secondary_controls):
+    """
+    Connects each secondary control to the EP curve.
+    """
+    if secondary_controls:
+        for control in secondary_controls.split(", "):
+            if cmds.objExists(control):
+                connect_object_to_curve(control)
+            else:
+                cmds.warning(f"Secondary control '{control}' does not exist and was skipped.")
+
+def connect_to_ep_curve(main_control, secondary_controls):
+    """
+    Connects the main control and each secondary control to the EP curve.
+    """
+    # Connect the main control
+    if main_control:
+        connect_object_to_curve(main_control)
+
+    # Connect each secondary control
+    if secondary_controls:
+        for control in secondary_controls.split(", "):
+            if cmds.objExists(control):
+                connect_object_to_curve(control)
+            else:
+                cmds.warning(f"Secondary control '{control}' does not exist and was skipped.")
+
+def create_ui():
+    """
+    Creates the UI for the Curve Builder tool.
+    Adds functionality to add objects to fields and connect them to the EP curve.
+    """
+    if cmds.window("curveBuilderWindow", exists=True):
+        cmds.deleteUI("curveBuilderWindow")
+
+    window = cmds.window("curveBuilderWindow", title="Curve Builder", widthHeight=(300, 300))
+    cmds.columnLayout(adjustableColumn=True)
+
+    cmds.text(label="Number of Points:")
+    num_points_field = cmds.intField(value=5)
+
+    cmds.button(label="Create EP Curve with Controls", command=lambda x: create_ep_curve_with_controls(
+        cmds.intField(num_points_field, query=True, value=True)
+    ))
+
+    cmds.separator(height=10, style="in")
+
+    # Main Control Field
+    cmds.text(label="Main Control:")
+    main_control_field = cmds.textField()
+
+    cmds.button(label="Add Selected Object to Main Control", command=lambda x: cmds.textField(main_control_field, edit=True, text=cmds.ls(selection=True)[0] if cmds.ls(selection=True) else ""))
+
+    cmds.separator(height=10, style="in")
+
+    # Secondary Controls Field
+    cmds.text(label="Secondary Controls:")
+    secondary_controls_field = cmds.textField()
+
+    cmds.button(label="Add Selected Objects to Secondary Controls", command=lambda x: cmds.textField(secondary_controls_field, edit=True, text=", ".join(cmds.ls(selection=True)) if cmds.ls(selection=True) else ""))
+
+    cmds.separator(height=10, style="in")
+
+    cmds.button(label="Connect Main Control to EP Curve", command=lambda x: connect_object_to_curve(
+        cmds.textField(main_control_field, query=True, text=True)
+    ))
+
+    cmds.button(label="Connect Secondary Controls to EP Curve", command=lambda x: connect_secondary_controls(
+        cmds.textField(secondary_controls_field, query=True, text=True)
+    ))
+
+    cmds.showWindow(window)
 
 # To run the tool
 if __name__ == "__main__":
