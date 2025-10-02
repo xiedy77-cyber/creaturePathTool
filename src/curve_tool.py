@@ -1,3 +1,23 @@
+def disconnect_motionpath_uvalue(path_locator):
+    """
+    Disconnects and deletes any animCurve node connected to the motionPath node's uValue attribute for the given path_locator.
+    """
+    path_anim_node = cmds.listConnections(f"{path_locator}.uValue", type="motionPath")
+    if not path_anim_node:
+        cmds.warning("No motionPath node found for the pathLocator.")
+        return
+    path_anim_node = path_anim_node[0]
+    # Find the input connection to uValue (should be an animCurve)
+    connections = cmds.listConnections(f"{path_anim_node}.uValue", source=True, destination=False, plugs=True)
+    if connections:
+        for src in connections:
+            cmds.disconnectAttr(src, f"{path_anim_node}.uValue")
+            node_name = src.split('.')[0]
+            if cmds.nodeType(node_name).startswith('animCurve'):
+                cmds.delete(node_name)
+        cmds.warning(f"Disconnected and deleted animCurve(s) from {path_anim_node}.uValue.")
+    else:
+        cmds.warning(f"No input connection to {path_anim_node}.uValue to disconnect or delete.")
 """
 Curve Builder Tool
 
@@ -192,6 +212,53 @@ def connect_to_ep_curve(controls):
             else:
                 cmds.warning(f"Control '{control}' does not exist and was skipped.")
 
+def match_path_locator_to_object(curve, path_locator, object_name):
+    """
+    Matches the distance the pathLocator travels along the curve to the Z-distance traveled by the object.
+    Deletes the default animCurve on uValue and keys uValue based on the object's Z movement.
+    """
+    if not cmds.objExists(curve) or not cmds.objExists(path_locator) or not cmds.objExists(object_name):
+        cmds.error("Curve, pathLocator, or object does not exist.")
+        return
+
+    # Get the motionPath node
+    path_anim_node = cmds.listConnections(f"{path_locator}.uValue", type="motionPath")
+    if not path_anim_node:
+        cmds.error("No motionPath node found for the pathLocator.")
+        return
+    path_anim_node = path_anim_node[0]
+
+    # Remove the default animation curve on uValue
+    anim_curve = cmds.listConnections(f"{path_anim_node}.uValue", type="animCurve")
+    if anim_curve:
+        cmds.delete(anim_curve)
+
+    # Get curve length and Z positions
+    curve_length = cmds.arclen(curve)
+    start_frame = int(cmds.playbackOptions(query=True, minTime=True))
+    end_frame = int(cmds.playbackOptions(query=True, maxTime=True))
+    cmds.currentTime(start_frame)
+    start_z = cmds.xform(object_name, query=True, worldSpace=True, translation=True)[2]
+    cmds.currentTime(end_frame)
+    end_z = cmds.xform(object_name, query=True, worldSpace=True, translation=True)[2]
+    z_distance = end_z - start_z
+
+    if z_distance == 0:
+        cmds.error("The object does not move in the Z-axis.")
+        return
+
+    # Set uValue for each frame
+    for frame in range(start_frame, end_frame + 1):
+        cmds.currentTime(frame)
+        current_z = cmds.xform(object_name, query=True, worldSpace=True, translation=True)[2]
+        traveled = current_z - start_z
+        proportion = traveled / z_distance
+        u_value = max(0.0, min(1.0, proportion))  # Clamp between 0 and 1
+        cmds.setAttr(f"{path_anim_node}.uValue", u_value)
+        cmds.setKeyframe(f"{path_anim_node}.uValue", time=frame, value=u_value)
+
+    cmds.warning("PathLocator uValue retargeted to match object's Z movement.")
+
 def create_ui():
     """
     Creates the UI for the Curve Builder tool.
@@ -203,13 +270,9 @@ def create_ui():
     window = cmds.window("curveBuilderWindow", title="Curve Builder", widthHeight=(300, 300))
     cmds.columnLayout(adjustableColumn=True)
 
+
     cmds.text(label="Number of Points:")
     num_points_field = cmds.intField(value=5)
-
-    cmds.button(label="Create EP Curve with Controls", command=lambda x: create_ep_curve_with_controls(
-        cmds.intField(num_points_field, query=True, value=True)
-    ))
-
     cmds.separator(height=10, style="in")
 
     # Secondary Controls Field
@@ -220,9 +283,12 @@ def create_ui():
 
     cmds.separator(height=10, style="in")
 
-    cmds.button(label="Connect Controls to EP Curve", command=lambda x: connect_to_ep_curve(
-        cmds.textField(secondary_controls_field, query=True, text=True)
-    ))
+    def create_curve_and_connect_controls(*_):
+        num_points = cmds.intField(num_points_field, query=True, value=True)
+        create_ep_curve_with_controls(num_points)
+        connect_to_ep_curve(cmds.textField(secondary_controls_field, query=True, text=True))
+
+    cmds.button(label="Connect Controls to EP Curve", command=create_curve_and_connect_controls)
 
     cmds.showWindow(window)
 
