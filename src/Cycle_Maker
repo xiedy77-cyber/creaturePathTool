@@ -1,0 +1,48 @@
+import maya.cmds as cmds
+
+# List of left/right control pairs to mirror
+CONTROL_PAIRS = [
+    ("L_ikFrontLegHandle_CTL", "R_ikFrontLegHandle_CTL"),
+    ("L_frontClavicle_CTL", "R_frontClavicle_CTL"),
+    ("L_frontFootToe_CTL", "R_frontFootToe_CTL"),
+    ("L_frontFootReverseRollBall_CTL", "R_frontFootReverseRollBall_CTL"),
+    ("L_frontFootIndex01_CTL", "R_frontFootIndex01_CTL"),
+    ("L_frontFootIndex02_CTL", "R_frontFootIndex02_CTL"),
+    ("L_frontFootMiddle01_CTL", "R_frontFootMiddle01_CTL"),
+    ("L_frontFootMiddle02_CTL", "R_frontFootMiddle02_CTL"),
+    ("L_frontFootRing01_CTL", "R_frontFootRing01_CTL"),
+    ("L_frontFootRing02_CTL", "R_frontFootRing02_CTL"),
+    ("L_frontFootPinky01_CTL", "R_frontFootPinky01_CTL"),
+    ("L_frontFootPinky02_CTL", "R_frontFootPinky02_CTL"),
+]
+
+RIG_PREFIX = "tigerA_rigMain_01_:"
+
+KEY_OPTIONS = {
+    "option": "replaceCompletely",
+    "copies": 1,
+    "connect": False,
+    "timeOffset": -20,
+    "floatOffset": -20,
+    "valueOffset": 0,
+    "selectPasted": True
+}
+
+
+def mirror_cycle_keys(control_pairs, prefix, key_options):
+    """
+    Mirrors animation keys from left to right controls for a given rig prefix and options.
+    """
+    for left, right in control_pairs:
+        left_ctrl = f"{prefix}{left}"
+        right_ctrl = f"{prefix}{right}"
+        cmds.copyKey(left_ctrl, time=":", hierarchy="none", controlPoints=False, shape=True)
+        cmds.pasteKey(right_ctrl, **key_options)
+
+
+def main():
+    mirror_cycle_keys(CONTROL_PAIRS, RIG_PREFIX, KEY_OPTIONS)
+
+
+if __name__ == "__main__":
+    main()
