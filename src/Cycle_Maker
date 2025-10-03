@@ -586,9 +586,12 @@ class CycleMakerUI:
     # ---------------------
     # Actions: Spine inversion pass
     # ---------------------
+
     def invert_spine_channels(self, *_):
-        """Enforce half-cycle antiphase on rotateY/rotateZ over the playback range.
-        For [start,end] with mid=(start+end)/2: values in [mid,end] are the negative of [start,mid].
+        """
+        Enforce half-cycle antiphase or standard cycle on spine/centerline channels over the playback range.
+        - rotateY, rotateZ, translateX, translateZ: antiphase (second half = negative of first half)
+        - rotateX, translateY: standard cycle (second half = copy of first half)
         """
         sel = cmds.ls(selection=True) or []
         if not sel:
@@ -607,31 +610,109 @@ class CycleMakerUI:
             cmds.warning("Invalid playback range. Set a valid range (e.g., 0 to 40).")
             return
 
+        # Define which channels get which type of cycling
+        antiphase_attrs = []
+        if invert_y:
+            antiphase_attrs.append("rotateY")
+        if invert_z:
+            antiphase_attrs.append("rotateZ")
+        antiphase_attrs += ["translateX", "translateZ"]
+        standard_attrs = ["rotateX", "translateY"]
+
         count = 0
         for node in sel:
-            short = node.split(':')[-1].lower()
+            short = node.split(":")[-1].lower()
             if not any(k in short for k in keywords):
                 continue
-            for attr in (('rotateY' if invert_y else None), ('rotateZ' if invert_z else None)):
-                if not attr:
-                    continue
+            # Antiphase channels
+            for attr in antiphase_attrs:
                 plug = f"{node}.{attr}"
                 try:
                     if not cmds.objExists(plug):
                         continue
                 except Exception:
                     continue
-                # Require at least one animCurve for the attr
                 if not self._anim_curve_for_attr(plug):
                     continue
-                # Rebuild second half as negative of first half
                 self._rebuild_second_half_antiphase(plug, start, mid, end)
+                count += 1
+            # Standard cycle channels
+            for attr in standard_attrs:
+                plug = f"{node}.{attr}"
+                try:
+                    if not cmds.objExists(plug):
+                        continue
+                except Exception:
+                    continue
+                if not self._anim_curve_for_attr(plug):
+                    continue
+                self._rebuild_second_half_standard(plug, start, mid, end)
                 count += 1
 
         if count == 0:
             cmds.warning("No matching spine channels processed. Check selection, keywords, and playback range.")
         else:
-            cmds.inViewMessage(amg=f"Applied antiphase to {count} channel(s) over [{start:.0f},{end:.0f}]", pos='midCenter', fade=True)
+            cmds.inViewMessage(amg=f"Applied cycle/antiphase to {count} channel(s) over [{start:.0f},{end:.0f}]", pos='midCenter', fade=True)
+
+    def _rebuild_second_half_standard(self, plug, start, mid, end):
+        """
+        Make [mid,end] a standard cycle (copy of [start,mid]) for the given plug.
+        """
+        # Anchor values
+        try:
+            v_start = cmds.getAttr(plug, time=start)
+        except Exception:
+            v_start = None
+        if not self._has_key_at(plug, start):
+            self._ensure_key(plug, start, v_start)
+        if not self._has_key_at(plug, mid):
+            self._ensure_key(plug, mid, v_start if v_start is not None else None)
+
+        # Unlock if needed
+        relock = False
+        try:
+            if cmds.getAttr(plug, lock=True):
+                relock = True
+                cmds.setAttr(plug, lock=False)
+        except Exception:
+            pass
+
+        # Clear second half
+        try:
+            cmds.cutKey(plug, time=(mid, end))
+        except Exception:
+            pass
+
+        # Copy first half [start, mid) and paste to [mid, end)
+        try:
+            cmds.copyKey(plug, time=(start, mid), includeUpperBound=False)
+        except Exception as e:
+            cmds.warning(f"copyKey failed on {plug} [{start},{mid}): {e}")
+            return
+        try:
+            cmds.pasteKey(plug, option='merge', timeOffset=(mid - start))
+        except Exception as e:
+            try:
+                cmds.pasteKey(plug, option='merge')
+            except Exception as e2:
+                cmds.warning(f"pasteKey failed on {plug}: {e2}")
+                return
+
+        # Enforce anchors: end==start, mid==start
+        try:
+            if v_start is None:
+                v_start = cmds.getAttr(plug, time=start)
+        except Exception:
+            v_start = 0.0
+        self._ensure_key(plug, mid, float(v_start))
+        self._ensure_key(plug, end, float(v_start))
+
+        # Relock
+        if relock:
+            try:
+                cmds.setAttr(plug, lock=True)
+            except Exception:
+                pass
 
 
 def launch_cycle_maker():
