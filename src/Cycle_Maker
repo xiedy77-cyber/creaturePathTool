@@ -11,6 +11,16 @@ class CycleMakerUI:
         self.right_list_field = None
         self.time_offset_field = None
         self.float_offset_field = None
+        # Spine/centerline inversion UI handles and defaults
+        self.spine_keywords_field = None
+        self.invert_y_chk = None
+        self.invert_z_chk = None
+        self.spine_keywords_default = [
+            'spine', 'chest', 'torso', 'back', 'hip', 'pelvis', 'waist', 'abdomen',
+            'cog', 'root', 'body', 'head', 'tail'
+        ]
+        self.spine_invert_y_default = True
+        self.spine_invert_z_default = True
         self.setup_ui()
 
     def setup_ui(self):
@@ -52,6 +62,23 @@ class CycleMakerUI:
         cmds.text(label="Force Cycle Infinity (pri/poi):")
         self.force_cycle_chk = cmds.checkBox(label='', value=False)
         cmds.setParent('..')
+
+        # Spine/centerline inversion options
+        cmds.frameLayout(label="Spine/Centerline Inversion", collapsable=True, collapse=False, marginHeight=6, marginWidth=6)
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=4)
+        cmds.text(label="Controls matching these keywords (comma-separated) will invert rotateY/rotateZ:")
+        self.spine_keywords_field = cmds.textField(text=",".join(self.spine_keywords_default))
+        cmds.rowLayout(numberOfColumns=4, columnWidth4=(140, 60, 140, 60), adjustableColumn=2)
+        cmds.text(label="Invert rotateY:")
+        self.invert_y_chk = cmds.checkBox(label='', value=self.spine_invert_y_default)
+        cmds.text(label="Invert rotateZ:")
+        self.invert_z_chk = cmds.checkBox(label='', value=self.spine_invert_z_default)
+        cmds.setParent('..')  # rowLayout
+        # Action button for manual spine inversion
+        cmds.separator(height=6)
+        cmds.button(label="Invert Spine Channels on Selection", command=self.invert_spine_channels)
+        cmds.setParent('..')  # columnLayout
+        cmds.setParent('..')  # frameLayout
 
         cmds.separator(height=10)
         cmds.button(label="Load Default Biped Controls", command=self.load_biped_defaults)
@@ -203,6 +230,131 @@ class CycleMakerUI:
                     attrs.append(plug.split('.')[-1])
         return list(dict.fromkeys(attrs))  # unique, preserve order
 
+    # ---------------------
+    # Spine inversion helpers
+    # ---------------------
+    def _spine_keywords(self):
+        """Return lowercase list of configured spine keywords from UI."""
+        try:
+            raw = cmds.textField(self.spine_keywords_field, query=True, text=True) or ""
+        except Exception:
+            raw = ",".join(self.spine_keywords_default)
+        parts = re.split(r"[,\s]+", raw.strip().lower())
+        return [p for p in parts if p]
+
+    def _should_invert_for_spine(self, node_name, attr):
+        """True if node matches spine keywords and attr is selected for inversion (rotateY/rotateZ)."""
+        short = node_name.split(':')[-1].lower()
+        if not any(k in short for k in self._spine_keywords()):
+            return False
+        try:
+            invert_y = cmds.checkBox(self.invert_y_chk, query=True, value=True)
+            invert_z = cmds.checkBox(self.invert_z_chk, query=True, value=True)
+        except Exception:
+            invert_y = self.spine_invert_y_default
+            invert_z = self.spine_invert_z_default
+        if attr == 'rotateY' and invert_y:
+            return True
+        if attr == 'rotateZ' and invert_z:
+            return True
+        return False
+
+    def _playback_cycle_range(self):
+        """Return (start, end, mid) from playback options, fallback to (0,40,20)."""
+        try:
+            start = float(cmds.playbackOptions(query=True, min=True))
+            end = float(cmds.playbackOptions(query=True, max=True))
+        except Exception:
+            start, end = 0.0, 40.0
+        if end <= start:
+            end = start + 40.0
+        mid = (start + end) / 2.0
+        return start, end, mid
+
+    def _has_key_at(self, plug, t):
+        """Return True if there's a key on plug at time t."""
+        try:
+            times = cmds.keyframe(plug, query=True, time=(t, t), timeChange=True) or []
+            return any(abs(tt - t) < 1e-4 for tt in times)
+        except Exception:
+            return False
+
+    def _ensure_key(self, plug, t, value=None):
+        """Ensure a key exists at time t with a given value (or current eval if None)."""
+        try:
+            if value is None:
+                value = cmds.getAttr(plug, time=t)
+            cmds.setKeyframe(plug, time=t, value=value)
+        except Exception:
+            pass
+
+    def _rebuild_second_half_antiphase(self, plug, start, mid, end):
+        """Make [mid,end] equal to the negative of [start,mid] for the given plug."""
+        # Anchor values
+        try:
+            v_start = cmds.getAttr(plug, time=start)
+        except Exception:
+            v_start = None
+        if not self._has_key_at(plug, start):
+            self._ensure_key(plug, start, v_start)
+        if not self._has_key_at(plug, mid):
+            # Create a temp key at mid to aid paste alignment
+            self._ensure_key(plug, mid, v_start if v_start is not None else None)
+
+        # Unlock if needed
+        relock = False
+        try:
+            if cmds.getAttr(plug, lock=True):
+                relock = True
+                cmds.setAttr(plug, lock=False)
+        except Exception:
+            pass
+
+        # Clear second half
+        try:
+            cmds.cutKey(plug, time=(mid, end))
+        except Exception:
+            pass
+
+        # Copy first half [start, mid) and paste to [mid, end)
+        try:
+            cmds.copyKey(plug, time=(start, mid), includeUpperBound=False)
+        except Exception as e:
+            cmds.warning(f"copyKey failed on {plug} [{start},{mid}): {e}")
+            return
+        try:
+            # Merge to avoid wiping existing keys in the first half
+            cmds.pasteKey(plug, option='merge', timeOffset=(mid - start))
+        except Exception as e:
+            # Fallback minimal paste
+            try:
+                cmds.pasteKey(plug, option='merge')
+            except Exception as e2:
+                cmds.warning(f"pasteKey failed on {plug}: {e2}")
+                return
+
+        # Negate pasted second half
+        try:
+            cmds.scaleKey(plug, time=(mid, end), valueScale=-1.0)
+        except Exception as e:
+            cmds.warning(f"scaleKey invert failed on {plug}: {e}")
+
+        # Enforce anchors: end==start, mid==-start
+        try:
+            if v_start is None:
+                v_start = cmds.getAttr(plug, time=start)
+        except Exception:
+            v_start = 0.0
+        self._ensure_key(plug, mid, -float(v_start))
+        self._ensure_key(plug, end, float(v_start))
+
+        # Relock
+        if relock:
+            try:
+                cmds.setAttr(plug, lock=True)
+            except Exception:
+                pass
+
     def get_key_options(self):
         """Get common key options for copy/paste operations."""
         time_offset = cmds.intField(self.time_offset_field, query=True, value=True)
@@ -265,8 +417,9 @@ class CycleMakerUI:
                             except Exception:
                                 pass
 
+                            paste_opts = self.get_key_options()
                             try:
-                                cmds.pasteKey(target_attr, **self.get_key_options())
+                                cmds.pasteKey(target_attr, **paste_opts)
                             except Exception as e:
                                 cmds.warning(f"pasteKey failed on {target_attr}: {e}")
                                 # Try minimal flags as fallback
@@ -280,6 +433,8 @@ class CycleMakerUI:
                                         except Exception:
                                             pass
                                     continue
+
+                            # Note: spine inversion is now a separate manual process via UI button
 
                             # Restore lock if needed
                             if relock:
@@ -427,6 +582,56 @@ class CycleMakerUI:
         for l, r in zip(self.left_controls, self.right_controls):
             cmds.textScrollList(self.left_list_field, edit=True, append=l)
             cmds.textScrollList(self.right_list_field, edit=True, append=r)
+
+    # ---------------------
+    # Actions: Spine inversion pass
+    # ---------------------
+    def invert_spine_channels(self, *_):
+        """Enforce half-cycle antiphase on rotateY/rotateZ over the playback range.
+        For [start,end] with mid=(start+end)/2: values in [mid,end] are the negative of [start,mid].
+        """
+        sel = cmds.ls(selection=True) or []
+        if not sel:
+            cmds.warning("Select one or more controls to invert spine channels.")
+            return
+        keywords = self._spine_keywords()
+        try:
+            invert_y = cmds.checkBox(self.invert_y_chk, query=True, value=True)
+            invert_z = cmds.checkBox(self.invert_z_chk, query=True, value=True)
+        except Exception:
+            invert_y = self.spine_invert_y_default
+            invert_z = self.spine_invert_z_default
+
+        start, end, mid = self._playback_cycle_range()
+        if end <= start:
+            cmds.warning("Invalid playback range. Set a valid range (e.g., 0 to 40).")
+            return
+
+        count = 0
+        for node in sel:
+            short = node.split(':')[-1].lower()
+            if not any(k in short for k in keywords):
+                continue
+            for attr in (('rotateY' if invert_y else None), ('rotateZ' if invert_z else None)):
+                if not attr:
+                    continue
+                plug = f"{node}.{attr}"
+                try:
+                    if not cmds.objExists(plug):
+                        continue
+                except Exception:
+                    continue
+                # Require at least one animCurve for the attr
+                if not self._anim_curve_for_attr(plug):
+                    continue
+                # Rebuild second half as negative of first half
+                self._rebuild_second_half_antiphase(plug, start, mid, end)
+                count += 1
+
+        if count == 0:
+            cmds.warning("No matching spine channels processed. Check selection, keywords, and playback range.")
+        else:
+            cmds.inViewMessage(amg=f"Applied antiphase to {count} channel(s) over [{start:.0f},{end:.0f}]", pos='midCenter', fade=True)
 
 
 def launch_cycle_maker():
