@@ -1,48 +1,348 @@
 import maya.cmds as cmds
+import re
 
-# List of left/right control pairs to mirror
-CONTROL_PAIRS = [
-    ("L_ikFrontLegHandle_CTL", "R_ikFrontLegHandle_CTL"),
-    ("L_frontClavicle_CTL", "R_frontClavicle_CTL"),
-    ("L_frontFootToe_CTL", "R_frontFootToe_CTL"),
-    ("L_frontFootReverseRollBall_CTL", "R_frontFootReverseRollBall_CTL"),
-    ("L_frontFootIndex01_CTL", "R_frontFootIndex01_CTL"),
-    ("L_frontFootIndex02_CTL", "R_frontFootIndex02_CTL"),
-    ("L_frontFootMiddle01_CTL", "R_frontFootMiddle01_CTL"),
-    ("L_frontFootMiddle02_CTL", "R_frontFootMiddle02_CTL"),
-    ("L_frontFootRing01_CTL", "R_frontFootRing01_CTL"),
-    ("L_frontFootRing02_CTL", "R_frontFootRing02_CTL"),
-    ("L_frontFootPinky01_CTL", "R_frontFootPinky01_CTL"),
-    ("L_frontFootPinky02_CTL", "R_frontFootPinky02_CTL"),
-]
+class CycleMakerUI:
+    def __init__(self):
+        self.window = "cycleMakerWin"
+        self.left_controls = []
+        self.right_controls = []
+        self.prefix_field = None
+        self.left_list_field = None
+        self.right_list_field = None
+        self.time_offset_field = None
+        self.float_offset_field = None
+        self.setup_ui()
 
-RIG_PREFIX = "tigerA_rigMain_01_:"
+    def setup_ui(self):
+        if cmds.window(self.window, exists=True):
+            cmds.deleteUI(self.window)
+        self.window = cmds.window(self.window, title="Cycle Maker Tool", widthHeight=(500, 400))
+        cmds.columnLayout(adjustableColumn=True)
+        cmds.text(label="Rig Prefix:")
+        self.prefix_field = cmds.textField(text="tigerA_rigMain_01_:")
+        cmds.separator(height=10)
+        cmds.text(label="Controls (Select one side, auto-fills other side):")
+        cmds.rowLayout(numberOfColumns=2, adjustableColumn=1)
+        self.left_list_field = cmds.textScrollList(allowMultiSelection=True, height=120)
+        self.right_list_field = cmds.textScrollList(allowMultiSelection=True, height=120)
+        cmds.setParent('..')
+        cmds.rowLayout(numberOfColumns=2)
+        cmds.button(label="Add Selected", command=self.add_selected_controls)
+        cmds.button(label="Remove Selected", command=self.remove_selected_controls)
+        cmds.setParent('..')
+        cmds.separator(height=10)
+        
+        # Offsets with labels
+        cmds.rowLayout(numberOfColumns=4, columnWidth4=(120, 100, 120, 100), adjustableColumn=2)
+        cmds.text(label="Time Offset (frames):")
+        self.time_offset_field = cmds.intField(value=20)
+        cmds.text(label="Float Offset (units):")
+        self.float_offset_field = cmds.intField(value=0)
+        cmds.setParent('..')
+        cmds.separator(height=10)
+        
+        # Copy direction buttons in a row
+        cmds.rowLayout(numberOfColumns=3, columnWidth3=(160, 160, 160), adjustableColumn=2)
+        cmds.button(label="Copy Left → Right", command=self.copy_left_to_right)
+        cmds.button(label="Copy Both Ways", command=self.mirror_keys)
+        cmds.button(label="Copy Right → Left", command=self.copy_right_to_left)
+        cmds.setParent('..')
+        # Infinity options
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 240), adjustableColumn=2)
+        cmds.text(label="Force Cycle Infinity (pri/poi):")
+        self.force_cycle_chk = cmds.checkBox(label='', value=False)
+        cmds.setParent('..')
 
-KEY_OPTIONS = {
-    "option": "replaceCompletely",
-    "copies": 1,
-    "connect": False,
-    "timeOffset": -20,
-    "floatOffset": -20,
-    "valueOffset": 0,
-    "selectPasted": True
-}
+        cmds.separator(height=10)
+        cmds.button(label="Load Default Biped Controls", command=self.load_biped_defaults)
+        cmds.button(label="Load Default Quadruped Controls", command=self.load_quad_defaults)
+        cmds.showWindow(self.window)
+
+    def add_selected_controls(self, *_):
+        sel = cmds.ls(selection=True)
+        for ctrl in sel:
+            ctrl_short = ctrl.split(':')[-1] if ':' in ctrl else ctrl
+            if self.is_left(ctrl_short):
+                right_ctrl = self.get_other_side(ctrl_short, left_to_right=True)
+                if ctrl_short not in self.left_controls:
+                    self.left_controls.append(ctrl_short)
+                    cmds.textScrollList(self.left_list_field, edit=True, append=ctrl_short)
+                if right_ctrl and right_ctrl not in self.right_controls:
+                    self.right_controls.append(right_ctrl)
+                    cmds.textScrollList(self.right_list_field, edit=True, append=right_ctrl)
+            elif self.is_right(ctrl_short):
+                left_ctrl = self.get_other_side(ctrl_short, left_to_right=False)
+                if ctrl_short not in self.right_controls:
+                    self.right_controls.append(ctrl_short)
+                    cmds.textScrollList(self.right_list_field, edit=True, append=ctrl_short)
+                if left_ctrl and left_ctrl not in self.left_controls:
+                    self.left_controls.append(left_ctrl)
+                    cmds.textScrollList(self.left_list_field, edit=True, append=left_ctrl)
+            else:
+                cmds.warning(f"Control name does not match left/right pattern: {ctrl_short}")
+
+    def remove_selected_controls(self, *_):
+        left_selected = cmds.textScrollList(self.left_list_field, query=True, selectItem=True) or []
+        right_selected = cmds.textScrollList(self.right_list_field, query=True, selectItem=True) or []
+        for ctrl in left_selected:
+            cmds.textScrollList(self.left_list_field, edit=True, removeItem=ctrl)
+            if ctrl in self.left_controls:
+                self.left_controls.remove(ctrl)
+            right_ctrl = self.get_other_side(ctrl, left_to_right=True)
+            if right_ctrl:
+                cmds.textScrollList(self.right_list_field, edit=True, removeItem=right_ctrl)
+                if right_ctrl in self.right_controls:
+                    self.right_controls.remove(right_ctrl)
+        for ctrl in right_selected:
+            cmds.textScrollList(self.right_list_field, edit=True, removeItem=ctrl)
+            if ctrl in self.right_controls:
+                self.right_controls.remove(ctrl)
+            left_ctrl = self.get_other_side(ctrl, left_to_right=False)
+            if left_ctrl:
+                cmds.textScrollList(self.left_list_field, edit=True, removeItem=left_ctrl)
+                if left_ctrl in self.left_controls:
+                    self.left_controls.remove(left_ctrl)
+
+    # ---------------------
+    # Animation helpers
+    # ---------------------
+    def _anim_curve_for_attr(self, attr_plug):
+        """Return the first animCurve node connected to the given attribute plug.
+        attr_plug is like 'node.attr'. Returns None if not found.
+        """
+        conns = cmds.listConnections(attr_plug, s=True, d=False) or []
+        for n in conns:
+            try:
+                nt = cmds.nodeType(n)
+            except Exception:
+                continue
+            if isinstance(nt, str) and nt.startswith('animCurve'):
+                return n
+        return None
+
+    def _apply_infinity_from_source(self, source_curve, target_curve):
+        """Copy pre/post infinity from source_curve to target_curve.
+        Uses strings per Maya docs: constant, linear, cycle, cycleRelative, oscillate.
+        """
+        if not source_curve or not target_curve:
+            return
+        try:
+            pre_val = cmds.getAttr('{}.preInfinity'.format(source_curve))
+            post_val = cmds.getAttr('{}.postInfinity'.format(source_curve))
+        except Exception:
+            return
+        inf_map = {0: 'constant', 1: 'linear', 2: 'cycle', 3: 'cycleRelative', 4: 'oscillate'}
+        pre_str = inf_map.get(pre_val, 'constant')
+        post_str = inf_map.get(post_val, 'constant')
+        try:
+            cmds.setInfinity(target_curve, pri=pre_str, poi=post_str)
+        except Exception:
+            # Fallback: set enum ints directly if command form fails in this environment
+            try:
+                cmds.setAttr('{}.preInfinity'.format(target_curve), pre_val)
+                cmds.setAttr('{}.postInfinity'.format(target_curve), post_val)
+            except Exception:
+                pass
+
+    def _keyed_attributes(self, node):
+        """Return a list of attribute names on node that have connected animCurves."""
+        attrs = []
+        try:
+            curves = cmds.keyframe(node, query=True, name=True) or []
+        except Exception:
+            curves = []
+        if not curves:
+            return attrs
+        for c in set(curves):
+            try:
+                dest_plugs = cmds.listConnections(c + '.output', s=False, d=True, p=True) or []
+            except Exception:
+                dest_plugs = []
+            for plug in dest_plugs:
+                if plug.startswith(node + '.'):
+                    attrs.append(plug.split('.')[-1])
+        return list(dict.fromkeys(attrs))  # unique, preserve order
+
+    def get_key_options(self):
+        """Get common key options for copy/paste operations."""
+        time_offset = cmds.intField(self.time_offset_field, query=True, value=True)
+        value_offset = cmds.intField(self.float_offset_field, query=True, value=True)
+        return {
+            "option": "replaceCompletely",
+            "copies": 1,
+            "timeOffset": time_offset,
+            "valueOffset": value_offset,
+            # Only include flags supported by pasteKey
+        }
+
+    def copy_keys(self, source_ctrl, target_ctrl):
+        """Copy keys from source to target control."""
+        prefix = cmds.textField(self.prefix_field, query=True, text=True)
+        source_full = f"{prefix}{source_ctrl}" if not source_ctrl.startswith(prefix) else source_ctrl
+        target_full = f"{prefix}{target_ctrl}" if not target_ctrl.startswith(prefix) else target_ctrl
+        
+        if cmds.objExists(source_full) and cmds.objExists(target_full):
+            # Determine which source attributes actually have animation
+            source_keyed_attrs = self._keyed_attributes(source_full)
+            copied_any = False
+            if source_keyed_attrs:
+                for attr in source_keyed_attrs:
+                    source_attr = f"{source_full}.{attr}"
+                    target_attr = f"{target_full}.{attr}"
+                    # Skip if target doesn't have this attribute
+                    try:
+                        if not cmds.attributeQuery(attr, node=target_full, exists=True):
+                            continue
+                    except Exception:
+                        continue
+                    
+                    # Check if source attribute has animation
+                    source_curve = self._anim_curve_for_attr(source_attr)
+                    if source_curve:
+                        time_range = cmds.keyframe(source_curve, query=True, timeChange=True)
+                        
+                        if time_range:
+                            # Copy keyframes
+                            try:
+                                cmds.copyKey(source_attr, time=(time_range[0], time_range[-1]), includeUpperBound=True)
+                            except Exception as e:
+                                cmds.warning(f"copyKey failed on {source_attr}: {e}")
+                                continue
+
+                            # Temporarily unlock target attribute if locked
+                            relock = False
+                            try:
+                                if cmds.getAttr(target_attr, lock=True):
+                                    relock = True
+                                    cmds.setAttr(target_attr, lock=False)
+                            except Exception:
+                                pass
+
+                            try:
+                                cmds.pasteKey(target_attr, **self.get_key_options())
+                            except Exception as e:
+                                cmds.warning(f"pasteKey failed on {target_attr}: {e}")
+                                # Try minimal flags as fallback
+                                try:
+                                    cmds.pasteKey(target_attr, option='replaceCompletely')
+                                except Exception as e2:
+                                    cmds.warning(f"pasteKey fallback failed on {target_attr}: {e2}")
+                                    if relock:
+                                        try:
+                                            cmds.setAttr(target_attr, lock=True)
+                                        except Exception:
+                                            pass
+                                    continue
+
+                            # Restore lock if needed
+                            if relock:
+                                try:
+                                    cmds.setAttr(target_attr, lock=True)
+                                except Exception:
+                                    pass
+                            copied_any = True
+                            
+                            # Copy infinity settings directly curve-to-curve
+                            target_curve = self._anim_curve_for_attr(target_attr)
+                            if target_curve:
+                                # If forced, set cycle on both pri/poi as requested
+                                try:
+                                    if cmds.checkBox(self.force_cycle_chk, query=True, value=True):
+                                        cmds.setInfinity(target_curve, pri='cycle', poi='cycle')
+                                    else:
+                                        self._apply_infinity_from_source(source_curve, target_curve)
+                                except Exception:
+                                    # Fallback to setting enum ints in cycle=2
+                                    try:
+                                        cmds.setAttr(target_curve + '.preInfinity', 2)
+                                        cmds.setAttr(target_curve + '.postInfinity', 2)
+                                    except Exception:
+                                        pass
+            if not copied_any:
+                if not source_keyed_attrs:
+                    cmds.warning(f"No keyed attributes found on source {source_full}.")
+                else:
+                    cmds.warning(f"No matching attributes on target {target_full} for source keyed attributes: {source_keyed_attrs}")
+        else:
+            cmds.warning(f"Control not found: {source_full} or {target_full}")
+
+    def copy_left_to_right(self, *_):
+        """Copy animation from left controls to right controls."""
+        if not self.left_controls:
+            cmds.warning("No left controls in the list. Please add some controls first.")
+            return
+            
+        for left_ctrl in self.left_controls:
+            right_ctrl = self.get_other_side(left_ctrl, left_to_right=True)
+            self.copy_keys(left_ctrl, right_ctrl)
+
+    def copy_right_to_left(self, *_):
+        """Copy animation from right controls to left controls."""
+        for right_ctrl in self.right_controls:
+            left_ctrl = self.get_other_side(right_ctrl, left_to_right=False)
+            self.copy_keys(right_ctrl, left_ctrl)
+
+    def mirror_keys(self, *_):
+        """Copy keys in both directions."""
+        # Store original values
+        orig_time_offset = cmds.intField(self.time_offset_field, query=True, value=True)
+        orig_float_offset = cmds.intField(self.float_offset_field, query=True, value=True)
+        
+        # Copy left to right with positive offset
+        cmds.intField(self.time_offset_field, edit=True, value=abs(orig_time_offset))
+        cmds.intField(self.float_offset_field, edit=True, value=abs(orig_float_offset))
+        self.copy_left_to_right()
+        
+        # Copy right to left with negative offset
+        cmds.intField(self.time_offset_field, edit=True, value=-abs(orig_time_offset))
+        cmds.intField(self.float_offset_field, edit=True, value=-abs(orig_float_offset))
+        self.copy_right_to_left()
+        
+        # Restore original values
+        cmds.intField(self.time_offset_field, edit=True, value=orig_time_offset)
+        cmds.intField(self.float_offset_field, edit=True, value=orig_float_offset)
+
+    def is_left(self, name):
+        # Accepts left controls with any prefix, e.g. ...:L_...
+        return bool(re.search(r"(^|:|_)L_", name))
+
+    def is_right(self, name):
+        # Accepts right controls with any prefix, e.g. ...:R_...
+        return bool(re.search(r"(^|:|_)R_", name))
+
+    def get_other_side(self, name, left_to_right=True):
+        if left_to_right:
+            return re.sub(r"(^|:|_)L_", r"\1R_", name)
+        else:
+            return re.sub(r"(^|:|_)R_", r"\1L_", name)
+
+    def load_biped_defaults(self, *_):
+        lefts = ["L_leg_CTL", "L_arm_CTL", "L_foot_CTL", "L_hand_CTL", "L_clavicle_CTL"]
+        self.left_controls = lefts
+        self.right_controls = [self.get_other_side(l, left_to_right=True) for l in lefts]
+        cmds.textScrollList(self.left_list_field, edit=True, removeAll=True)
+        cmds.textScrollList(self.right_list_field, edit=True, removeAll=True)
+        for l, r in zip(self.left_controls, self.right_controls):
+            cmds.textScrollList(self.left_list_field, edit=True, append=l)
+            cmds.textScrollList(self.right_list_field, edit=True, append=r)
+
+    def load_quad_defaults(self, *_):
+        lefts = [
+            "L_ikFrontLegHandle_CTL", "L_frontClavicle_CTL", "L_frontFootToe_CTL", "L_frontFootReverseRollBall_CTL",
+            "L_frontFootIndex01_CTL", "L_frontFootIndex02_CTL", "L_frontFootMiddle01_CTL", "L_frontFootMiddle02_CTL",
+            "L_frontFootRing01_CTL", "L_frontFootRing02_CTL", "L_frontFootPinky01_CTL", "L_frontFootPinky02_CTL"
+        ]
+        self.left_controls = lefts
+        self.right_controls = [self.get_other_side(l, left_to_right=True) for l in lefts]
+        cmds.textScrollList(self.left_list_field, edit=True, removeAll=True)
+        cmds.textScrollList(self.right_list_field, edit=True, removeAll=True)
+        for l, r in zip(self.left_controls, self.right_controls):
+            cmds.textScrollList(self.left_list_field, edit=True, append=l)
+            cmds.textScrollList(self.right_list_field, edit=True, append=r)
 
 
-def mirror_cycle_keys(control_pairs, prefix, key_options):
-    """
-    Mirrors animation keys from left to right controls for a given rig prefix and options.
-    """
-    for left, right in control_pairs:
-        left_ctrl = f"{prefix}{left}"
-        right_ctrl = f"{prefix}{right}"
-        cmds.copyKey(left_ctrl, time=":", hierarchy="none", controlPoints=False, shape=True)
-        cmds.pasteKey(right_ctrl, **key_options)
-
-
-def main():
-    mirror_cycle_keys(CONTROL_PAIRS, RIG_PREFIX, KEY_OPTIONS)
-
+def launch_cycle_maker():
+    CycleMakerUI()
 
 if __name__ == "__main__":
-    main()
+    launch_cycle_maker()
