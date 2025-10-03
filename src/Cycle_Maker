@@ -616,8 +616,8 @@ class CycleMakerUI:
             antiphase_attrs.append("rotateY")
         if invert_z:
             antiphase_attrs.append("rotateZ")
-        antiphase_attrs += ["translateX", "translateZ"]
-        standard_attrs = ["rotateX", "translateY"]
+        antiphase_attrs += ["translateX"]
+        standard_attrs = ["rotateX", "translateY", "translateZ"]
 
         count = 0
         for node in sel:
