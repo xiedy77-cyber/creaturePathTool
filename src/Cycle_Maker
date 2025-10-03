@@ -64,20 +64,34 @@ class CycleMakerUI:
             ctrl_short = ctrl.split(':')[-1] if ':' in ctrl else ctrl
             if self.is_left(ctrl_short):
                 right_ctrl = self.get_other_side(ctrl_short, left_to_right=True)
-                if ctrl_short not in self.left_controls:
+                # Maintain paired alignment
+                if ctrl_short not in self.left_controls and right_ctrl and right_ctrl not in self.right_controls:
                     self.left_controls.append(ctrl_short)
-                    cmds.textScrollList(self.left_list_field, edit=True, append=ctrl_short)
-                if right_ctrl and right_ctrl not in self.right_controls:
                     self.right_controls.append(right_ctrl)
+                    cmds.textScrollList(self.left_list_field, edit=True, append=ctrl_short)
                     cmds.textScrollList(self.right_list_field, edit=True, append=right_ctrl)
+                else:
+                    # If lists already contain one side, try to align by index
+                    if ctrl_short not in self.left_controls:
+                        self.left_controls.append(ctrl_short)
+                        cmds.textScrollList(self.left_list_field, edit=True, append=ctrl_short)
+                    if right_ctrl and right_ctrl not in self.right_controls:
+                        self.right_controls.append(right_ctrl)
+                        cmds.textScrollList(self.right_list_field, edit=True, append=right_ctrl)
             elif self.is_right(ctrl_short):
                 left_ctrl = self.get_other_side(ctrl_short, left_to_right=False)
-                if ctrl_short not in self.right_controls:
+                if ctrl_short not in self.right_controls and left_ctrl and left_ctrl not in self.left_controls:
                     self.right_controls.append(ctrl_short)
-                    cmds.textScrollList(self.right_list_field, edit=True, append=ctrl_short)
-                if left_ctrl and left_ctrl not in self.left_controls:
                     self.left_controls.append(left_ctrl)
+                    cmds.textScrollList(self.right_list_field, edit=True, append=ctrl_short)
                     cmds.textScrollList(self.left_list_field, edit=True, append=left_ctrl)
+                else:
+                    if ctrl_short not in self.right_controls:
+                        self.right_controls.append(ctrl_short)
+                        cmds.textScrollList(self.right_list_field, edit=True, append=ctrl_short)
+                    if left_ctrl and left_ctrl not in self.left_controls:
+                        self.left_controls.append(left_ctrl)
+                        cmds.textScrollList(self.left_list_field, edit=True, append=left_ctrl)
             else:
                 cmds.warning(f"Control name does not match left/right pattern: {ctrl_short}")
 
@@ -110,6 +124,15 @@ class CycleMakerUI:
         """Return the first animCurve node connected to the given attribute plug.
         attr_plug is like 'node.attr'. Returns None if not found.
         """
+        # Prefer robust query that traverses through utility nodes
+        try:
+            curves = cmds.keyframe(attr_plug, query=True, name=True) or []
+            if curves:
+                return curves[0]
+        except Exception:
+            pass
+
+        # Fallback: direct connections
         conns = cmds.listConnections(attr_plug, s=True, d=False) or []
         for n in conns:
             try:
@@ -122,7 +145,7 @@ class CycleMakerUI:
 
     def _apply_infinity_from_source(self, source_curve, target_curve):
         """Copy pre/post infinity from source_curve to target_curve.
-        Uses strings per Maya docs: constant, linear, cycle, cycleRelative, oscillate.
+        Set pri and poi in separate calls and verify; fallback to setting enum ints if needed.
         """
         if not source_curve or not target_curve:
             return
@@ -134,12 +157,29 @@ class CycleMakerUI:
         inf_map = {0: 'constant', 1: 'linear', 2: 'cycle', 3: 'cycleRelative', 4: 'oscillate'}
         pre_str = inf_map.get(pre_val, 'constant')
         post_str = inf_map.get(post_val, 'constant')
+
+        # Apply pre infinity
+        ok_pre = False
         try:
-            cmds.setInfinity(target_curve, pri=pre_str, poi=post_str)
+            cmds.setInfinity(target_curve, pri=pre_str)
+            ok_pre = (cmds.getAttr('{}.preInfinity'.format(target_curve)) == pre_val)
         except Exception:
-            # Fallback: set enum ints directly if command form fails in this environment
+            ok_pre = False
+        if not ok_pre:
             try:
                 cmds.setAttr('{}.preInfinity'.format(target_curve), pre_val)
+            except Exception:
+                pass
+
+        # Apply post infinity
+        ok_post = False
+        try:
+            cmds.setInfinity(target_curve, poi=post_str)
+            ok_post = (cmds.getAttr('{}.postInfinity'.format(target_curve)) == post_val)
+        except Exception:
+            ok_post = False
+        if not ok_post:
+            try:
                 cmds.setAttr('{}.postInfinity'.format(target_curve), post_val)
             except Exception:
                 pass
@@ -180,6 +220,11 @@ class CycleMakerUI:
         prefix = cmds.textField(self.prefix_field, query=True, text=True)
         source_full = f"{prefix}{source_ctrl}" if not source_ctrl.startswith(prefix) else source_ctrl
         target_full = f"{prefix}{target_ctrl}" if not target_ctrl.startswith(prefix) else target_ctrl
+
+        # Safety: don't allow copying onto the same control
+        if source_full == target_full:
+            cmds.warning(f"Source and target resolve to the same node '{source_full}'. Skipping.")
+            return
         
         if cmds.objExists(source_full) and cmds.objExists(target_full):
             # Determine which source attributes actually have animation
@@ -200,11 +245,13 @@ class CycleMakerUI:
                     source_curve = self._anim_curve_for_attr(source_attr)
                     if source_curve:
                         time_range = cmds.keyframe(source_curve, query=True, timeChange=True)
-                        
+                        # Ensure ordered [start, end]
                         if time_range:
+                            start_t = min(time_range)
+                            end_t = max(time_range)
                             # Copy keyframes
                             try:
-                                cmds.copyKey(source_attr, time=(time_range[0], time_range[-1]), includeUpperBound=True)
+                                cmds.copyKey(source_attr, time=(start_t, end_t), includeUpperBound=True)
                             except Exception as e:
                                 cmds.warning(f"copyKey failed on {source_attr}: {e}")
                                 continue
@@ -243,16 +290,35 @@ class CycleMakerUI:
                             copied_any = True
                             
                             # Copy infinity settings directly curve-to-curve
-                            target_curve = self._anim_curve_for_attr(target_attr)
-                            if target_curve:
-                                # If forced, set cycle on both pri/poi as requested
+                            # Find all animCurves influencing this attribute (through any intermediates)
+                            try:
+                                target_curves = cmds.keyframe(target_attr, query=True, name=True) or []
+                            except Exception:
+                                target_curves = []
+                            # Unique list
+                            target_curves = list(dict.fromkeys(target_curves))
+                            for target_curve in target_curves:
                                 try:
                                     if cmds.checkBox(self.force_cycle_chk, query=True, value=True):
-                                        cmds.setInfinity(target_curve, pri='cycle', poi='cycle')
+                                        # Set pri and poi separately and verify
+                                        try:
+                                            cmds.setInfinity(target_curve, pri='cycle')
+                                        except Exception:
+                                            pass
+                                        try:
+                                            cmds.setInfinity(target_curve, poi='cycle')
+                                        except Exception:
+                                            pass
+                                        # As a last resort, set enum values directly
+                                        try:
+                                            cmds.setAttr(target_curve + '.preInfinity', 2)
+                                            cmds.setAttr(target_curve + '.postInfinity', 2)
+                                        except Exception:
+                                            pass
                                     else:
                                         self._apply_infinity_from_source(source_curve, target_curve)
                                 except Exception:
-                                    # Fallback to setting enum ints in cycle=2
+                                    # Final fallback to cycle on both ends via enum
                                     try:
                                         cmds.setAttr(target_curve + '.preInfinity', 2)
                                         cmds.setAttr(target_curve + '.postInfinity', 2)
@@ -268,18 +334,40 @@ class CycleMakerUI:
 
     def copy_left_to_right(self, *_):
         """Copy animation from left controls to right controls."""
-        if not self.left_controls:
-            cmds.warning("No left controls in the list. Please add some controls first.")
+        if not self.left_controls or not self.right_controls:
+            cmds.warning("Left or Right list is empty. Please add paired controls first.")
             return
-            
-        for left_ctrl in self.left_controls:
-            right_ctrl = self.get_other_side(left_ctrl, left_to_right=True)
+
+        count = min(len(self.left_controls), len(self.right_controls))
+        if len(self.left_controls) != len(self.right_controls):
+            cmds.warning(f"Left/Right list lengths differ (L={len(self.left_controls)} R={len(self.right_controls)}). Using first {count} pairs.")
+
+        for i in range(count):
+            left_ctrl = self.left_controls[i]
+            # Prefer the explicit paired right control; fallback to name swap if missing/empty
+            right_ctrl = self.right_controls[i] if i < len(self.right_controls) and self.right_controls[i] else self.get_other_side(left_ctrl, left_to_right=True)
+            if left_ctrl == right_ctrl:
+                cmds.warning(f"Skipping pair with identical names: {left_ctrl}")
+                continue
             self.copy_keys(left_ctrl, right_ctrl)
 
     def copy_right_to_left(self, *_):
         """Copy animation from right controls to left controls."""
-        for right_ctrl in self.right_controls:
-            left_ctrl = self.get_other_side(right_ctrl, left_to_right=False)
+        if not self.left_controls or not self.right_controls:
+            cmds.warning("Left or Right list is empty. Please add paired controls first.")
+            return
+
+        count = min(len(self.left_controls), len(self.right_controls))
+        if len(self.left_controls) != len(self.right_controls):
+            cmds.warning(f"Left/Right list lengths differ (L={len(self.left_controls)} R={len(self.right_controls)}). Using first {count} pairs.")
+
+        for i in range(count):
+            right_ctrl = self.right_controls[i]
+            # Prefer the explicit paired left control; fallback to name swap if missing/empty
+            left_ctrl = self.left_controls[i] if i < len(self.left_controls) and self.left_controls[i] else self.get_other_side(right_ctrl, left_to_right=False)
+            if right_ctrl == left_ctrl:
+                cmds.warning(f"Skipping pair with identical names: {right_ctrl}")
+                continue
             self.copy_keys(right_ctrl, left_ctrl)
 
     def mirror_keys(self, *_):

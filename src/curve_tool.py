@@ -26,10 +26,12 @@ Creates an EP curve with NURBS controls for deformation.
 
 import maya.cmds as cmds
 
-def create_ep_curve_with_controls(num_points):
+def create_ep_curve_with_controls(num_points, z_distance=10.0, start_pos=(0,0,0)):
     """
     Creates an EP curve (linear NURBS) with the specified number of points,
     each with a NURBS curve control that can deform the curve.
+    The curve's length in Z matches the given z_distance.
+    The curve starts at start_pos.
     Adds a master control, creates a locator, and attaches it to the path animation.
     Also creates a child locator under the main locator.
     """
@@ -37,12 +39,12 @@ def create_ep_curve_with_controls(num_points):
         cmds.error("Number of points must be at least 2.")
         return
 
-    # Create points for a straight line along Z
-    spacing = 1.0
-    points = [(0, 0, i * spacing) for i in range(num_points)]
+    # Create points for a straight line along Z, spaced to match z_distance, starting at start_pos
+    spacing = float(z_distance) / (num_points - 1)
+    points = [(start_pos[0], start_pos[1], start_pos[2] + i * spacing) for i in range(num_points)]
 
     # Create the EP curve (degree 3 for smoother curves)
-    curve = cmds.curve(name='creaturePath', p=points, degree=3)  # Renamed to 'creaturePath'
+    curve = cmds.curve(name=cmds.createNode('transform', name='creaturePath#'), p=points, degree=3)
 
     if not cmds.objExists(curve):
         cmds.error("Failed to create the EP curve. Please try again.")
@@ -50,56 +52,43 @@ def create_ep_curve_with_controls(num_points):
 
     # Make the curve non-selectable
     cmds.setAttr(f'{curve}.overrideEnabled', 1)
-    cmds.setAttr(f'{curve}.overrideDisplayType', 2)  # 2 = Reference, making it non-selectable
+    cmds.setAttr(f'{curve}.overrideDisplayType', 2)
 
-    # Create a top-level group
-    top_group = cmds.group(empty=True, name='creaturePathTool')
+    # Create a top-level group with unique name
+    top_group = cmds.group(empty=True, name=cmds.createNode('transform', name='creaturePathTool#'))
 
-    # Create a root group to contain all controls
-    root_group = cmds.group(empty=True, name='curve_controls_grp', parent=top_group)
+    # Create a root group to contain all controls with unique name
+    root_group = cmds.group(empty=True, name=cmds.createNode('transform', name='curve_controls_grp#'), parent=top_group)
 
     # Create NURBS controls for each point
     for i in range(num_points):
-        # Create a small circle as control, rotated 90 in X (normal Z-up)
-        control = cmds.circle(name=f'curve_control_{i}', radius=0.1, normal=(0,0,1))[0]
+        control = cmds.circle(name=f'curve_control_{i}#{top_group}', radius=0.1, normal=(0,0,1))[0]
         cmds.xform(control, translation=points[i])
-        # Freeze transformations to zero out rotation while keeping translate
         cmds.makeIdentity(control, apply=True, rotate=True, scale=True)
-
-        # Parent the control under the root group
         cmds.parent(control, root_group)
-
-        # Add expressions to drive cv positions
         cmds.expression(name=f'cv_{i}_x', string=f'{curve}.controlPoints[{i}].xValue = {control}.translateX')
         cmds.expression(name=f'cv_{i}_y', string=f'{curve}.controlPoints[{i}].yValue = {control}.translateY')
         cmds.expression(name=f'cv_{i}_z', string=f'{curve}.controlPoints[{i}].zValue = {control}.translateZ')
 
-    # Create a master control
-    master_control = cmds.circle(name='master_control', radius=0.5, normal=(0,1,0))[0]  # Reduced size by 50%
+    master_control = cmds.circle(name=f'master_control#{top_group}', radius=0.5, normal=(0,1,0))[0]
     cmds.xform(master_control, translation=(0, 0, 0))
     cmds.makeIdentity(master_control, apply=True, rotate=True, scale=True)
-
-    # Parent the curve and root group under the master control
     cmds.parent(curve, root_group, master_control)
-
-    # Parent the master control under the top group
     cmds.parent(master_control, top_group)
 
-    # Create a locator and attach it to the path animation
-    locator = cmds.spaceLocator(name='pathLocator')[0]
+    locator = cmds.spaceLocator(name=f'pathLocator#{top_group}')[0]
     cmds.xform(locator, translation=(0, 0, 0))
     cmds.pathAnimation(locator, c=curve, fractionMode=True, follow=True, followAxis="x", upAxis="y",
                        worldUpType="vector", worldUpVector=(0, 1, 0), inverseUp=False, inverseFront=False, bank=False,
                        startTimeU=cmds.playbackOptions(query=True, minTime=True),
                        endTimeU=cmds.playbackOptions(query=True, maxTime=True))
 
-    # Create a child locator under the main locator
-    child_locator = cmds.spaceLocator(name='childLocator')[0]
+    child_locator = cmds.spaceLocator(name=f'childLocator#{top_group}')[0]
     cmds.parent(child_locator, locator)
-    cmds.xform(child_locator, translation=(0, 1, 0))  # Offset the child locator slightly
+    cmds.xform(child_locator, translation=(0, 1, 0))
 
     cmds.select(curve)
-    cmds.warning(f"EP Curve created with {num_points} NURBS controls, a master control, a locator with a child locator attached to the path animation, and organized under 'creaturePathTool'.")
+    cmds.warning(f"EP Curve created with {num_points} NURBS controls, a master control, a locator with a child locator attached to the path animation, and organized under 'creaturePathTool'. Curve length matches Z distance: {z_distance}, starts at {start_pos}")
 
 def connect_object_to_curve(object_name):
     """
@@ -115,7 +104,8 @@ def connect_object_to_curve(object_name):
         return
 
     # Find the child locator
-    child_locator = cmds.ls("childLocator", type="transform")
+    # Find the most recent childLocator
+    child_locator = cmds.ls("childLocator*", type="transform")
     if not child_locator:
         cmds.error("Child locator not found. Please create one first.")
         return
@@ -168,7 +158,8 @@ def connect_to_ep_curve(controls):
     - Constrain the control to the NURBS control.
     """
     if controls:
-        path_locator = cmds.ls("pathLocator", type="transform")
+        # Find the most recent pathLocator
+        path_locator = cmds.ls("pathLocator*", type="transform")
         if not path_locator:
             cmds.error("Main pathLocator not found. Please create the EP curve first.")
             return
@@ -178,7 +169,7 @@ def connect_to_ep_curve(controls):
         for control in controls.split(", "):
             if cmds.objExists(control):
                 # Create a locator named after the control
-                locator = cmds.spaceLocator(name=f"{control}_locator")[0]
+                locator = cmds.spaceLocator(name=f"{control}_locator#{path_locator}")[0]
 
                 # Parent the locator under the main pathLocator
                 cmds.parent(locator, path_locator)
@@ -191,7 +182,7 @@ def connect_to_ep_curve(controls):
                                                                 cmds.playbackOptions(query=True, maxTime=True)))
 
                 # Create a NURBS control named after the control
-                nurbs_control = cmds.circle(name=f"{control}_control", radius=1.0, normal=(0, 1, 0))[0]
+                nurbs_control = cmds.circle(name=f"{control}_control#{path_locator}", radius=1.0, normal=(0, 1, 0))[0]
 
                 # Match the NURBS control's position and rotation to the locator
                 locator_position = cmds.xform(locator, query=True, worldSpace=True, translation=True)
@@ -275,18 +266,42 @@ def create_ui():
     num_points_field = cmds.intField(value=5)
     cmds.separator(height=10, style="in")
 
+
+    # Main Control Field
+    cmds.text(label="Main Control:")
+    main_control_field = cmds.textField()
+
+    cmds.button(label="Add Main Control", command=lambda x: cmds.textField(main_control_field, edit=True, text=", ".join(cmds.ls(selection=True)) if cmds.ls(selection=True) else ""))
+
+    cmds.separator(height=10, style="in")
+
     # Secondary Controls Field
     cmds.text(label="Secondary Controls:")
     secondary_controls_field = cmds.textField()
-
-    cmds.button(label="Add Selected Objects to Secondary Controls", command=lambda x: cmds.textField(secondary_controls_field, edit=True, text=", ".join(cmds.ls(selection=True)) if cmds.ls(selection=True) else ""))
+    cmds.button(label="Add Secondary Controls", command=lambda x: cmds.textField(secondary_controls_field, edit=True, text=", ".join(cmds.ls(selection=True)) if cmds.ls(selection=True) else ""))
 
     cmds.separator(height=10, style="in")
 
     def create_curve_and_connect_controls(*_):
         num_points = cmds.intField(num_points_field, query=True, value=True)
-        create_ep_curve_with_controls(num_points)
-        connect_to_ep_curve(cmds.textField(secondary_controls_field, query=True, text=True))
+        main_control = cmds.textField(main_control_field, query=True, text=True)
+        secondary_controls = cmds.textField(secondary_controls_field, query=True, text=True)
+        # Get Z distance and starting position from the first main control's Z movement
+        z_distance = 10.0
+        start_pos = (0, 0, 0)
+        controls_list = [c.strip() for c in main_control.split(',') if c.strip()]
+        if controls_list and cmds.objExists(controls_list[0]):
+            start_frame = int(cmds.playbackOptions(query=True, minTime=True))
+            end_frame = int(cmds.playbackOptions(query=True, maxTime=True))
+            cmds.currentTime(start_frame)
+            start_pos = tuple(cmds.xform(controls_list[0], query=True, worldSpace=True, translation=True))
+            start_z = start_pos[2]
+            cmds.currentTime(end_frame)
+            end_z = cmds.xform(controls_list[0], query=True, worldSpace=True, translation=True)[2]
+            z_distance = abs(end_z - start_z)
+        create_ep_curve_with_controls(num_points, z_distance, start_pos)
+        connect_to_ep_curve(main_control)
+        connect_secondary_controls(secondary_controls)
 
     cmds.button(label="Connect Controls to EP Curve", command=create_curve_and_connect_controls)
 
