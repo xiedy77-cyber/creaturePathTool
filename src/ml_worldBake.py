@@ -108,6 +108,10 @@ and bake "from locators" to re-apply your animation.''') as win:
         mc.checkBoxGrp('ml_worldBake_bakeOnOnes_checkBox',label='Bake on Ones',
                        annotation='Bake every frame. If deselected, the tool will preserve keytimes.')
 
+        # Update checkbox label to 'Current Frame only'
+        mc.checkBoxGrp('ml_worldBake_leaveAtCurrentFrame_checkBox', label='Current Frame only',
+                       annotation='Leave objects at their current time frame with offset and no keys on locators.')
+
         tabs = mc.tabLayout()
         tab1 = mc.columnLayout(adj=True)
         mc.radioButtonGrp('ml_worldBake_space_radioButton', label='Bake To Space', numberOfRadioButtons=3,
@@ -119,7 +123,8 @@ and bake "from locators" to re-apply your animation.''') as win:
         win.ButtonWithPopup(label='Bake Selection To Locators', command=toLocators, annotation='Bake selected object to locators specified space.',
             readUI_toArgs={'bakeOnOnes':'ml_worldBake_bakeOnOnes_checkBox',
                            'spaceInt':'ml_worldBake_space_radioButton',
-                           'constrainSource':'ml_worldBake_constrain_checkBox'},
+                           'constrainSource':'ml_worldBake_constrain_checkBox',
+                           'leaveAtCurrentFrame':'ml_worldBake_leaveAtCurrentFrame_checkBox'},
             name=win.name)#this last arg is temp..
         mc.setParent('..')
 
@@ -148,13 +153,52 @@ and bake "from locators" to re-apply your animation.''') as win:
 
 
 
-def toLocators(bakeOnOnes=False, space='world', spaceInt=None, constrainSource=False):
+def createCurrentFrameLocators(objs, parent=None, constrainSource=False):
+    '''
+    Creates locators positioned at the current frame without baking animation keys.
+    Similar to matchBakeLocators but only captures the current position.
+    '''
+    if not objs:
+        OpenMaya.MGlobal.displayWarning('Select an Object')
+        return
+
+    locs = list()
+
+    for obj in objs:
+        name = mc.ls(obj, shortNames=True)[0]
+        if ':' in name:
+            name = obj.rpartition(':')[-1]
+
+        locator = mc.spaceLocator(name='worldBake_'+name+'_#')[0]
+        
+        mc.setAttr(locator+'.rotateOrder', 3)
+
+        # Add attributes to connect back to source
+        mc.addAttr(locator, longName='ml_bakeSource', attributeType='message')
+        mc.connectAttr('.'.join((obj,'message')), '.'.join((locator,'ml_bakeSource')))
+        mc.addAttr(locator, longName='ml_bakeSourceName', dataType='string')
+        mc.setAttr('.'.join((locator,'ml_bakeSourceName')), name, type='string')
+
+        # Position locator at current frame position of object
+        mc.matchTransform(locator, obj, position=True, rotation=True, scale=False)
+
+        if parent:
+            locator = mc.parent(locator, parent)[0]
+
+        locs.append(locator)
+
+        if constrainSource:
+            mc.parentConstraint(locator, obj)
+
+    mc.select(locs)
+
+
+def toLocators(bakeOnOnes=False, space='world', spaceInt=None, constrainSource=False, leaveAtCurrentFrame=False):
     '''
     Creates locators, and bakes their position to selection.
     Creates connections to the source objects, so they can
     be found later to bake back.
     '''
-
     if spaceInt and 0 <= spaceInt <= 2:
         space = ['world', 'camera', 'last'][spaceInt]
 
@@ -167,6 +211,12 @@ def toLocators(bakeOnOnes=False, space='world', spaceInt=None, constrainSource=F
         sel = sel[:-1]
 
     mc.select(sel)
+
+    if leaveAtCurrentFrame:
+        # Create locators positioned at current frame without baking keys
+        createCurrentFrameLocators(sel, parent=parent, constrainSource=constrainSource)
+        return
+
     matchBakeLocators(parent=parent, bakeOnOnes=bakeOnOnes, constrainSource=constrainSource)
 
 
