@@ -100,6 +100,7 @@ except ImportError:
 def createSmartConstraint(source, target):
     '''
     Creates a parent constraint that only affects unlocked channels.
+    Also locks corresponding channels on the source locator to match the target.
     If all channels are locked, no constraint is created.
     '''
     # Check which translation and rotation channels are locked
@@ -108,14 +109,33 @@ def createSmartConstraint(source, target):
     
     unlocked_translate = []
     unlocked_rotate = []
+    locked_translate = []
+    locked_rotate = []
     
     for axis in translate_axes:
         if not mc.getAttr(target + '.translate' + axis, lock=True):
             unlocked_translate.append(axis.lower())
+        else:
+            locked_translate.append(axis)
     
     for axis in rotate_axes:
         if not mc.getAttr(target + '.rotate' + axis, lock=True):
             unlocked_rotate.append(axis.lower())
+        else:
+            locked_rotate.append(axis)
+    
+    # Lock corresponding channels on the source locator
+    for axis in locked_translate:
+        try:
+            mc.setAttr(source + '.translate' + axis, lock=True)
+        except:
+            pass  # Ignore if attribute doesn't exist or can't be locked
+    
+    for axis in locked_rotate:
+        try:
+            mc.setAttr(source + '.rotate' + axis, lock=True)
+        except:
+            pass  # Ignore if attribute doesn't exist or can't be locked
     
     # If no channels are unlocked, don't create constraint
     if not unlocked_translate and not unlocked_rotate:
