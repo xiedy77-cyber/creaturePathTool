@@ -96,6 +96,52 @@ except ImportError:
     if result == 'Download Module':
         mc.showHelp('http://morganloomis.com/tool/ml_utilities/',absolute=True)
 
+
+def createSmartConstraint(source, target):
+    '''
+    Creates a parent constraint that only affects unlocked channels.
+    If all channels are locked, no constraint is created.
+    '''
+    # Check which translation and rotation channels are locked
+    translate_axes = ['X', 'Y', 'Z']
+    rotate_axes = ['X', 'Y', 'Z']
+    
+    unlocked_translate = []
+    unlocked_rotate = []
+    
+    for axis in translate_axes:
+        if not mc.getAttr(target + '.translate' + axis, lock=True):
+            unlocked_translate.append(axis.lower())
+    
+    for axis in rotate_axes:
+        if not mc.getAttr(target + '.rotate' + axis, lock=True):
+            unlocked_rotate.append(axis.lower())
+    
+    # If no channels are unlocked, don't create constraint
+    if not unlocked_translate and not unlocked_rotate:
+        OpenMaya.MGlobal.displayWarning('All transform channels are locked on {}, skipping constraint.'.format(target))
+        return None
+    
+    # Build skip flags for locked channels
+    skip_translate = []
+    skip_rotate = []
+    
+    for axis in ['x', 'y', 'z']:
+        if axis not in unlocked_translate:
+            skip_translate.append(axis)
+        if axis not in unlocked_rotate:
+            skip_rotate.append(axis)
+    
+    try:
+        # Create constraint with appropriate skip flags
+        constraint = mc.parentConstraint(source, target, 
+                                       skipTranslate=skip_translate if skip_translate else None,
+                                       skipRotate=skip_rotate if skip_rotate else None)[0]
+        return constraint
+    except Exception as e:
+        OpenMaya.MGlobal.displayWarning('Failed to create constraint: {}'.format(str(e)))
+        return None
+
 def ui():
     '''
     User interface for world bake
@@ -188,7 +234,7 @@ def createCurrentFrameLocators(objs, parent=None, constrainSource=False):
         locs.append(locator)
 
         if constrainSource:
-            mc.parentConstraint(locator, obj)
+            createSmartConstraint(locator, obj)
 
     mc.select(locs)
 
@@ -312,7 +358,7 @@ def matchBakeLocators(parent=None, bakeOnOnes=False, constrainSource=False):
     if constrainSource:
         mc.cutKey(objs)
         for loc, obj in zip(locs, objs):
-            mc.parentConstraint(loc, obj)
+            createSmartConstraint(loc, obj)
 
 def reparent(bakeOnOnes=False):
 
