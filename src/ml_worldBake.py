@@ -185,7 +185,7 @@ and bake "from locators" to re-apply your animation.''') as win:
                           annotation='The locators will be parented to world, the current camera, or the last selection.')
         
         # Create a row layout to place checkboxes side by side
-        mc.rowLayout(numberOfColumns=3, columnWidth3=(180, 140, 50), adjustableColumn=True)
+        mc.rowLayout(numberOfColumns=3, columnWidth3=(180, 20, 150))
         mc.checkBoxGrp('ml_worldBake_constrain_checkBox',label='Maintain Constraints',
                        annotation='Constrain source nodes to the created locators, after baking.')
         mc.text(label="")  # Spacer
