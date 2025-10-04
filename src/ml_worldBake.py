@@ -134,9 +134,13 @@ def createSmartConstraint(source, target):
     
     try:
         # Create constraint with appropriate skip flags
-        constraint = mc.parentConstraint(source, target, 
-                                       skipTranslate=skip_translate if skip_translate else None,
-                                       skipRotate=skip_rotate if skip_rotate else None)[0]
+        constraint_kwargs = {}
+        if skip_translate:
+            constraint_kwargs['skipTranslate'] = skip_translate
+        if skip_rotate:
+            constraint_kwargs['skipRotate'] = skip_rotate
+            
+        constraint = mc.parentConstraint(source, target, **constraint_kwargs)[0]
         return constraint
     except Exception as e:
         OpenMaya.MGlobal.displayWarning('Failed to create constraint: {}'.format(str(e)))
