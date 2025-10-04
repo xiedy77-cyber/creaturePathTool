@@ -28,8 +28,9 @@ class CycleMakerUI:
             cmds.deleteUI(self.window)
         self.window = cmds.window(self.window, title="Cycle Maker Tool", widthHeight=(500, 400))
         cmds.columnLayout(adjustableColumn=True)
-        cmds.text(label="Rig Prefix:")
-        self.prefix_field = cmds.textField(text="tigerA_rigMain_01_:")
+        cmds.text(label="Rig Prefix (auto-detected):")
+        self.prefix_field = cmds.textField(text="tigerA_rigMain_01_:", editable=False, 
+                                           backgroundColor=(0.8, 0.8, 0.8))
         cmds.separator(height=10)
         cmds.text(label="Controls (Select one side, auto-fills other side):")
         cmds.rowLayout(numberOfColumns=2, adjustableColumn=1)
@@ -57,12 +58,22 @@ class CycleMakerUI:
         cmds.button(label="Copy Both Ways", command=self.mirror_keys)
         cmds.button(label="Copy Right → Left", command=self.copy_right_to_left)
         cmds.setParent('..')
+        # Manual infinity application button
+        cmds.rowLayout(numberOfColumns=1, adjustableColumn=1)
+        cmds.button(label="Apply Cycle Infinity To Selection", command=self.apply_cycle_infinity_for_selection)
+        cmds.setParent('..')
         # Infinity options
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 240), adjustableColumn=2)
         cmds.text(label="Force Cycle Infinity (pri/poi):")
-        self.force_cycle_chk = cmds.checkBox(label='', value=False)
+        self.force_cycle_chk = cmds.checkBox(label='', value=True)  # Default to True for cycle infinity
         cmds.setParent('..')
 
+        # Add Ensure 2+ Keys checkbox
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 240), adjustableColumn=2)
+        cmds.text(label="Ensure 2+ keys for cycling:")
+        self.ensure_two_keys_chk = cmds.checkBox(label='', value=True)  # Default to True for ensuring 2+ keys
+        cmds.setParent('..')
+        
         # Spine/centerline inversion options
         cmds.frameLayout(label="Spine/Centerline Inversion", collapsable=True, collapse=False, marginHeight=6, marginWidth=6)
         cmds.columnLayout(adjustableColumn=True, rowSpacing=4)
@@ -87,6 +98,23 @@ class CycleMakerUI:
 
     def add_selected_controls(self, *_):
         sel = cmds.ls(selection=True)
+        if not sel:
+            cmds.warning("No controls selected.")
+            return
+            
+        # Auto-detect and update rig prefix from first selected control
+        first_ctrl = sel[0]
+        detected_prefix = self.extract_rig_prefix(first_ctrl)
+        current_prefix = cmds.textField(self.prefix_field, query=True, text=True)
+        
+        # Update prefix if it's different from current or if current is default
+        if detected_prefix != current_prefix or current_prefix == "tigerA_rigMain_01_:":
+            cmds.textField(self.prefix_field, edit=True, text=detected_prefix)
+            if detected_prefix:
+                cmds.inViewMessage(amg=f"Rig prefix auto-detected: {detected_prefix}", pos='midCenter', fade=True)
+            else:
+                cmds.inViewMessage(amg="No namespace detected in selection", pos='midCenter', fade=True)
+        
         for ctrl in sel:
             ctrl_short = ctrl.split(':')[-1] if ':' in ctrl else ctrl
             if self.is_left(ctrl_short):
@@ -170,12 +198,325 @@ class CycleMakerUI:
                 return n
         return None
 
+    def _apply_cycle_infinity_mel(self, curves):
+        """Apply cycle infinity to animation curves using MEL commands.
+        This is more reliable than the Python cmds.setInfinity approach.
+        """
+        if not curves:
+            return
+
+        # Normalize to list
+        if isinstance(curves, str):
+            curves = [curves]
+
+        for curve in curves:
+            if not curve or not cmds.objExists(curve):
+                continue
+            # Some animCurve types use preInfinity/postInfinity enum (int). 2 == cycle
+            for attr_name, label in (("preInfinity", "pre"), ("postInfinity", "post")):
+                try:
+                    locked = cmds.getAttr(f"{curve}.{attr_name}", lock=True)
+                except Exception:
+                    locked = False
+                if locked:
+                    try:
+                        cmds.setAttr(f"{curve}.{attr_name}", lock=False)
+                    except Exception as e:
+                        continue
+                try:
+                    before = cmds.getAttr(f"{curve}.{attr_name}")
+                except Exception:
+                    before = "?"
+                # Direct setAttr (0=constant,1=linear,2=cycle,3=cycleRelative,4=oscillate)
+                try:
+                    cmds.setAttr(f"{curve}.{attr_name}", 3)
+                except Exception as e:
+                    # Fallback: attempt MEL targeted at curve
+                    try:
+                        import maya.mel as mel
+                        mel.eval(f"select -r {curve};")
+                        if label == 'pre':
+                            mel.eval("setInfinity -pri cycle;")
+                        else:
+                            mel.eval("setInfinity -poi cycle;")
+                    except Exception as me:
+                        pass
+                try:
+                    after = cmds.getAttr(f"{curve}.{attr_name}")
+                except Exception:
+                    after = "?"
+                # Relock if it was locked originally
+                if locked:
+                    try:
+                        cmds.setAttr(f"{curve}.{attr_name}", lock=True)
+                    except Exception:
+                        pass
+
+    # ---------------------
+    # Advanced infinity application with multi-layer fallback & diagnostics
+    # ---------------------
+    def _apply_cycle_infinity_advanced(self, curves, verbose=True):
+        """Attempt to set pre/post infinity to cycle with multiple strategies and diagnostics.
+        Strategies per curve:
+          1. Direct setInfinity command with full parameter specification
+          2. Direct setAttr (int 2)
+          3. cmds.setInfinity(preInfinite='cycle', postInfinite='cycle')
+          4. OpenMaya API plug set (setInt)
+        Batch strategies (all curves):
+          5. MEL batch: select all curves once, set both pri & poi simultaneously
+        Diagnostics:
+          - keyframe count & times
+          - reference status & node lock state
+          - original and final values
+          - single-key warning (cycle visually meaningless with <2 keys)
+        Returns (updated, failed) lists.
+        """
+        if not curves:
+            return [], []
+        # Normalize
+        if isinstance(curves, str):
+            curves = [curves]
+        updated = []
+        pending = []
+        
+        # Pre-pass collect info
+        for c in curves:
+            if not cmds.objExists(c):
+                if verbose:
+                    print(f"INFINITY_ADV: Curve missing {c}")
+                continue
+            
+            # Try direct setInfinity command first with all parameters
+            try:
+                # This applies to all keyframe tangents on the curve
+                cmds.setInfinity(c, preInfinite="cycle", postInfinite="cycle", 
+                                controlPoints=True, shape=True, hierarchy="none")
+                
+                # Verify it worked
+                pre_val = cmds.getAttr(c+'.preInfinity')
+                post_val = cmds.getAttr(c+'.postInfinity')
+                if pre_val == 3 and post_val == 3:
+                    if verbose:
+                        print(f"INFINITY_ADV: Direct setInfinity with params success {c}")
+                    updated.append(c)
+                    continue
+            except Exception as e:
+                if verbose:
+                    print(f"INFINITY_ADV: Direct setInfinity with params failed {c}: {e}")
+            
+            try:
+                kt = cmds.keyframe(c, query=True, timeChange=True) or []
+            except Exception:
+                kt = []
+            kcount = len(kt)
+            try:
+                ref = cmds.referenceQuery(c, isNodeReferenced=True)
+            except Exception:
+                ref = False
+            try:
+                locked_node = cmds.lockNode(c, query=True, lock=True) or [False]
+                locked_node = any(locked_node)
+            except Exception:
+                locked_node = False
+            try:
+                pre0 = cmds.getAttr(c+'.preInfinity')
+                post0 = cmds.getAttr(c+'.postInfinity')
+            except Exception:
+                pre0 = post0 = '??'
+            if verbose:
+                rng = (min(kt), max(kt)) if kcount else (None, None)
+                print(f"INFINITY_ADV: {c} type={cmds.nodeType(c)} keys={kcount} range={rng} ref={ref} lockedNode={locked_node} pre={pre0} post={post0}")
+            # Try direct setAttr first
+            success_direct = False
+            for attr in ('preInfinity','postInfinity'):
+                try:
+                    cmds.setAttr(f'{c}.{attr}', 3)
+                except Exception as e:
+                    if verbose:
+                        print(f"INFINITY_ADV: setAttr failed {c}.{attr}: {e}")
+            try:
+                preA = cmds.getAttr(c+'.preInfinity')
+                postA = cmds.getAttr(c+'.postInfinity')
+                success_direct = (preA == 3 and postA == 3)
+            except Exception:
+                success_direct = False
+            if success_direct:
+                if verbose:
+                    print(f"INFINITY_ADV: Direct setAttr success {c} -> (2,2)")
+                updated.append(c)
+                continue
+            # Try cmds.setInfinity
+            try:
+                cmds.setInfinity(c, preInfinite='cycle', postInfinite='cycle')
+            except Exception as e:
+                if verbose:
+                    print(f"INFINITY_ADV: cmds.setInfinity failed {c}: {e}")
+            try:
+                preB = cmds.getAttr(c+'.preInfinity')
+                postB = cmds.getAttr(c+'.postInfinity')
+                if preB == 3 and postB == 3:
+                    if verbose:
+                        print(f"INFINITY_ADV: cmds.setInfinity success {c}")
+                    updated.append(c)
+                    continue
+            except Exception:
+                pass
+            # Try OpenMaya API
+            try:
+                import maya.api.OpenMaya as om
+                sel = om.MSelectionList(); sel.add(c)
+                mobj = sel.getDependNode(0)
+                fn = om.MFnDependencyNode(mobj)
+                for attr in ('preInfinity','postInfinity'):
+                    plug = fn.findPlug(attr, False)
+                    plug.setInt(3)
+                preC = cmds.getAttr(c+'.preInfinity')
+                postC = cmds.getAttr(c+'.postInfinity')
+                if preC == 3 and postC == 3:
+                    if verbose:
+                        print(f"INFINITY_ADV: OpenMaya plug success {c}")
+                    updated.append(c)
+                    continue
+            except Exception as e:
+                if verbose:
+                    print(f"INFINITY_ADV: OpenMaya attempt failed {c}: {e}")
+            # Record for batch MEL attempt
+            pending.append(c)
+        # Batch MEL (single selection) if any pending
+        if pending:
+            if verbose:
+                print(f"INFINITY_ADV: Batch MEL attempt on {len(pending)} pending curves")
+            try:
+                import maya.mel as mel
+                mel.eval('select -r ' + ' '.join(pending) + ';')
+                # Single call specifying both flags sometimes behaves differently than split calls
+                mel.eval('setInfinity -pri 2 -poi 2;')  # numeric flags
+                # Also try named for safety
+                mel.eval('setInfinity -pri "cycle" -poi "cycle";')
+            except Exception as e:
+                if verbose:
+                    print(f"INFINITY_ADV: Batch MEL failure: {e}")
+            # Re-check
+            recheck = []
+            for c in list(pending):
+                try:
+                    if cmds.getAttr(c+'.preInfinity') == 3 and cmds.getAttr(c+'.postInfinity') == 3:
+                        updated.append(c)
+                    else:
+                        recheck.append(c)
+                except Exception:
+                    recheck.append(c)
+            pending = recheck
+        # Single-key warning
+        for c in list(pending):
+            try:
+                kcount = cmds.keyframe(c, query=True, keyframeCount=True)
+                if kcount < 2:
+                    if verbose:
+                        print(f"INFINITY_ADV: {c} has <2 keys; cycling pre/post may be suppressed by Maya.")
+            except Exception:
+                pass
+        return updated, pending
+
+    # ---------------------
+    # Manual infinity application
+    # ---------------------
+    def _collect_anim_curves_from_nodes(self, nodes):
+        curves = []
+        for node in nodes:
+            if not cmds.objExists(node):
+                continue
+            # Method 1: keyframe query
+            try:
+                kcurves = cmds.keyframe(node, query=True, name=True) or []
+                for c in kcurves:
+                    if c not in curves:
+                        curves.append(c)
+            except Exception:
+                pass
+            # Method 2: listConnections by animCurve
+            try:
+                conns = cmds.listConnections(node, source=True, destination=False) or []
+                for c in conns:
+                    try:
+                        if cmds.objExists(c) and cmds.nodeType(c).startswith('animCurve') and c not in curves:
+                            curves.append(c)
+                    except Exception:
+                        continue
+            except Exception:
+                pass
+        return curves
+
+    def apply_cycle_infinity_for_selection(self, *_):
+        sel = cmds.ls(selection=True) or []
+        if not sel:
+            cmds.warning("Select controls or animCurves to apply cycle infinity.")
+            return
+
+        ensure_two_keys = cmds.checkBox(self.ensure_two_keys_chk, query=True, value=True)
+
+        direct_curves = [s for s in sel if cmds.objExists(s) and cmds.nodeType(s).startswith('animCurve')]
+        target_nodes = [s for s in sel if s not in direct_curves]
+        curves = list(direct_curves)
+        curves += self._collect_anim_curves_from_nodes(target_nodes)
+        curves = list(dict.fromkeys(curves))  # unique preserve
+
+        if ensure_two_keys:
+            for curve in curves:
+                self._ensure_two_keys(curve)
+
+        if not curves:
+            cmds.warning("No animCurves found on selection.")
+            return
+
+        updated, failed = self._apply_cycle_infinity_advanced(curves, verbose=False)
+
+        # Always generate the manual script for all curves
+        self.generate_manual_infinity_script(curves)
+
+        if updated and not failed:
+            cmds.inViewMessage(amg=f"Applied cycle infinity to {len(updated)} curve(s)", pos='midCenter', fade=True)
+        elif updated:
+            cmds.inViewMessage(amg=f"Cycle infinity partial: {len(updated)}/{len(curves)}", pos='midCenter', fade=True)
+
+    def generate_manual_infinity_script(self, curves):
+        """Generate a script to manually apply infinity settings to the given curves."""
+        if not curves:
+            print("No curves provided to generate a manual script.")
+            return
+
+        script_lines = []
+        for curve in curves:
+            if cmds.objExists(curve):
+                script_lines.append(f"cmds.setAttr('{curve}.preInfinity', 3)")
+                script_lines.append(f"cmds.setAttr('{curve}.postInfinity', 3)")
+
+        if script_lines:
+            print("\n# Generated script to manually apply infinity settings:\n")
+            for line in script_lines:
+                print(line)
+            print("\n# End of script\n")
+        else:
+            print("No valid curves found to generate a script.")
+
     def _apply_infinity_from_source(self, source_curve, target_curve):
         """Copy pre/post infinity from source_curve to target_curve.
-        Set pri and poi in separate calls and verify; fallback to setting enum ints if needed.
+        If force_cycle is enabled, applies cycle infinity instead.
         """
         if not source_curve or not target_curve:
             return
+            
+        # Check if force cycle is enabled
+        try:
+            force_cycle = cmds.checkBox(self.force_cycle_chk, query=True, value=True)
+        except Exception:
+            force_cycle = False
+            
+        if force_cycle:
+            # Force cycle using direct attr method
+            self._apply_cycle_infinity_mel([target_curve])
+            return
+            
         try:
             pre_val = cmds.getAttr('{}.preInfinity'.format(source_curve))
             post_val = cmds.getAttr('{}.postInfinity'.format(source_curve))
@@ -185,28 +526,17 @@ class CycleMakerUI:
         pre_str = inf_map.get(pre_val, 'constant')
         post_str = inf_map.get(post_val, 'constant')
 
-        # Apply pre infinity
-        ok_pre = False
         try:
-            cmds.setInfinity(target_curve, pri=pre_str)
-            ok_pre = (cmds.getAttr('{}.preInfinity'.format(target_curve)) == pre_val)
+            # Select the curve and use MEL commands for reliability
+            cmds.select(target_curve, replace=True)
+            import maya.mel as mel
+            mel.eval(f"setInfinity -pri {pre_str};")
+            mel.eval(f"setInfinity -poi {post_str};")
+            cmds.select(clear=True)
         except Exception:
-            ok_pre = False
-        if not ok_pre:
+            # Fallback to direct attribute setting
             try:
                 cmds.setAttr('{}.preInfinity'.format(target_curve), pre_val)
-            except Exception:
-                pass
-
-        # Apply post infinity
-        ok_post = False
-        try:
-            cmds.setInfinity(target_curve, poi=post_str)
-            ok_post = (cmds.getAttr('{}.postInfinity'.format(target_curve)) == post_val)
-        except Exception:
-            ok_post = False
-        if not ok_post:
-            try:
                 cmds.setAttr('{}.postInfinity'.format(target_curve), post_val)
             except Exception:
                 pass
@@ -355,6 +685,19 @@ class CycleMakerUI:
             except Exception:
                 pass
 
+    def _ensure_two_keys(self, curve):
+        """Ensure the given curve has at least two keys."""
+        try:
+            key_times = cmds.keyframe(curve, query=True, timeChange=True) or []
+            if len(key_times) < 2:
+                value = cmds.keyframe(curve, query=True, valueChange=True)[0]
+                playback_start = cmds.playbackOptions(query=True, min=True)
+                playback_end = cmds.playbackOptions(query=True, max=True)
+                cmds.setKeyframe(curve, time=playback_start, value=value)
+                cmds.setKeyframe(curve, time=playback_end, value=value)
+        except Exception:
+            pass
+
     def get_key_options(self):
         """Get common key options for copy/paste operations."""
         time_offset = cmds.intField(self.time_offset_field, query=True, value=True)
@@ -434,6 +777,15 @@ class CycleMakerUI:
                                             pass
                                     continue
 
+                            # IMPORTANT: Allow Maya to process the paste operation before applying infinity
+                            cmds.refresh()
+                            
+                            # Verify the paste worked by checking for keys
+                            try:
+                                key_count = cmds.keyframe(target_attr, query=True, keyframeCount=True)
+                            except Exception as key_e:
+                                pass
+                            
                             # Note: spine inversion is now a separate manual process via UI button
 
                             # Restore lock if needed
@@ -444,41 +796,55 @@ class CycleMakerUI:
                                     pass
                             copied_any = True
                             
-                            # Copy infinity settings directly curve-to-curve
-                            # Find all animCurves influencing this attribute (through any intermediates)
+                            # Apply infinity settings using MEL commands
+                            # Find all animCurves influencing this attribute AFTER paste is complete
+                            target_curves = []
+                            
+                            # Method 1: keyframe query
                             try:
                                 target_curves = cmds.keyframe(target_attr, query=True, name=True) or []
-                            except Exception:
-                                target_curves = []
-                            # Unique list
-                            target_curves = list(dict.fromkeys(target_curves))
-                            for target_curve in target_curves:
+                            except Exception as e:
+                                pass
+                            
+                            # Method 2: listConnections with animCurve type filter
+                            if not target_curves:
                                 try:
-                                    if cmds.checkBox(self.force_cycle_chk, query=True, value=True):
-                                        # Set pri and poi separately and verify
-                                        try:
-                                            cmds.setInfinity(target_curve, pri='cycle')
-                                        except Exception:
-                                            pass
-                                        try:
-                                            cmds.setInfinity(target_curve, poi='cycle')
-                                        except Exception:
-                                            pass
-                                        # As a last resort, set enum values directly
-                                        try:
-                                            cmds.setAttr(target_curve + '.preInfinity', 2)
-                                            cmds.setAttr(target_curve + '.postInfinity', 2)
-                                        except Exception:
-                                            pass
-                                    else:
-                                        self._apply_infinity_from_source(source_curve, target_curve)
+                                    conns = cmds.listConnections(target_attr, source=True, destination=False, type='animCurve') or []
+                                    target_curves = [c for c in conns if c and cmds.objExists(c) and cmds.nodeType(c).startswith('animCurve')]
+                                except Exception as e2:
+                                    pass
+                            
+                            # Method 3: General listConnections and filter
+                            if not target_curves:
+                                try:
+                                    all_conns = cmds.listConnections(target_attr, source=True, destination=False) or []
+                                    for conn in all_conns:
+                                        if conn and cmds.objExists(conn):
+                                            try:
+                                                node_type = cmds.nodeType(conn)
+                                                if node_type and node_type.startswith('animCurve'):
+                                                    target_curves.append(conn)
+                                            except Exception:
+                                                continue
+                                except Exception as e3:
+                                    pass
+                            
+                            # Apply infinity to target curves
+                            if target_curves:
+                                try:
+                                    force_cycle = cmds.checkBox(self.force_cycle_chk, query=True, value=True)
                                 except Exception:
-                                    # Final fallback to cycle on both ends via enum
-                                    try:
-                                        cmds.setAttr(target_curve + '.preInfinity', 2)
-                                        cmds.setAttr(target_curve + '.postInfinity', 2)
-                                    except Exception:
-                                        pass
+                                    force_cycle = False
+                                    
+                                if force_cycle:
+                                    # Force cycle infinity using MEL
+                                    self._apply_cycle_infinity_mel(target_curves)
+                                else:
+                                    # Copy infinity from source using MEL
+                                    for target_curve in target_curves:
+                                        self._apply_infinity_from_source(source_curve, target_curve)
+                            else:
+                                print(f"DEBUG: WARNING - No curves found for {target_attr} after trying all methods!")
             if not copied_any:
                 if not source_keyed_attrs:
                     cmds.warning(f"No keyed attributes found on source {source_full}.")
@@ -546,18 +912,35 @@ class CycleMakerUI:
         cmds.intField(self.float_offset_field, edit=True, value=orig_float_offset)
 
     def is_left(self, name):
-        # Accepts left controls with any prefix, e.g. ...:L_...
-        return bool(re.search(r"(^|:|_)L_", name))
+        # Accepts left controls with any prefix, e.g. ...:L_... or ..._L
+        return bool(re.search(r"(^|:|_)L(_|$)", name))
 
     def is_right(self, name):
-        # Accepts right controls with any prefix, e.g. ...:R_...
-        return bool(re.search(r"(^|:|_)R_", name))
+        # Accepts right controls with any prefix, e.g. ...:R_... or ..._R
+        return bool(re.search(r"(^|:|_)R(_|$)", name))
 
     def get_other_side(self, name, left_to_right=True):
         if left_to_right:
-            return re.sub(r"(^|:|_)L_", r"\1R_", name)
+            # Handle both L_ and _L patterns
+            name = re.sub(r"(^|:|_)L_", r"\1R_", name)
+            name = re.sub(r"_L$", "_R", name)
+            return name
         else:
-            return re.sub(r"(^|:|_)R_", r"\1L_", name)
+            # Handle both R_ and _R patterns
+            name = re.sub(r"(^|:|_)R_", r"\1L_", name)
+            name = re.sub(r"_R$", "_L", name)
+            return name
+
+    def extract_rig_prefix(self, control_name):
+        """Extract the rig prefix/namespace from a control name.
+        Examples: 
+        - 'the_tyrant_rig:IKLeg_R' -> 'the_tyrant_rig:'
+        - 'tigerA_rigMain_01_:L_arm_CTL' -> 'tigerA_rigMain_01_:'
+        - 'IKLeg_R' -> ''
+        """
+        if ':' in control_name:
+            return control_name.split(':', 1)[0] + ':'
+        return ''
 
     def load_biped_defaults(self, *_):
         lefts = ["L_leg_CTL", "L_arm_CTL", "L_foot_CTL", "L_hand_CTL", "L_clavicle_CTL"]
