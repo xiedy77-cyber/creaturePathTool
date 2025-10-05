@@ -1457,6 +1457,8 @@ class CycleMakerUI:
         standard_attrs = ["rotateX", "translateY", "translateZ"]
 
         count = 0
+        spine_curves = []  # Collect curves for infinity application
+        
         for node in sel:
             short = node.split(":")[-1].lower()
             if not any(k in short for k in keywords):
@@ -1469,9 +1471,11 @@ class CycleMakerUI:
                         continue
                 except Exception:
                     continue
-                if not self._anim_curve_for_attr(plug):
+                curve = self._anim_curve_for_attr(plug)
+                if not curve:
                     continue
                 self._rebuild_second_half_antiphase(plug, start, mid, end)
+                spine_curves.append(curve)
                 count += 1
             # Standard cycle channels
             for attr in standard_attrs:
@@ -1481,10 +1485,16 @@ class CycleMakerUI:
                         continue
                 except Exception:
                     continue
-                if not self._anim_curve_for_attr(plug):
+                curve = self._anim_curve_for_attr(plug)
+                if not curve:
                     continue
                 self._rebuild_second_half_standard(plug, start, mid, end)
+                spine_curves.append(curve)
                 count += 1
+        
+        # Apply cycleRelative infinity (value 3) to all spine curves
+        if spine_curves:
+            self._apply_cycle_relative_infinity(spine_curves)
 
         if count == 0:
             cmds.warning("No matching spine channels processed. Check selection, keywords, and playback range.")
@@ -1550,6 +1560,54 @@ class CycleMakerUI:
                 cmds.setAttr(plug, lock=True)
             except Exception:
                 pass
+
+    def _apply_cycle_relative_infinity(self, curves):
+        """Apply cycleRelative infinity (value 3) to animation curves for spine controls."""
+        if not curves:
+            return
+            
+        # Normalize to list
+        if isinstance(curves, str):
+            curves = [curves]
+            
+        for curve in curves:
+            if not curve or not cmds.objExists(curve):
+                continue
+                
+            # Apply cycleRelative (3) to both pre and post infinity
+            for attr_name in ("preInfinity", "postInfinity"):
+                try:
+                    locked = cmds.getAttr(f"{curve}.{attr_name}", lock=True)
+                except Exception:
+                    locked = False
+                    
+                if locked:
+                    try:
+                        cmds.setAttr(f"{curve}.{attr_name}", lock=False)
+                    except Exception:
+                        continue
+                        
+                try:
+                    # Set to cycleRelative (3) instead of cycle (2)
+                    cmds.setAttr(f"{curve}.{attr_name}", 3)
+                except Exception as e:
+                    # Fallback: attempt MEL targeted at curve
+                    try:
+                        import maya.mel as mel
+                        mel.eval(f"select -r {curve};")
+                        if attr_name == 'preInfinity':
+                            mel.eval("setInfinity -pri cycleRelative;")
+                        else:
+                            mel.eval("setInfinity -poi cycleRelative;")
+                    except Exception:
+                        pass
+                        
+                # Relock if it was locked originally
+                if locked:
+                    try:
+                        cmds.setAttr(f"{curve}.{attr_name}", lock=True)
+                    except Exception:
+                        pass
 
 
     # =========================================================================
