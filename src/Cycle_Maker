@@ -1829,22 +1829,23 @@ class CycleMakerUI:
             end_in_angle = cmds.keyTangent(curve, time=(end_key, end_key), query=True, inAngle=True)[0]
             end_in_weight = cmds.keyTangent(curve, time=(end_key, end_key), query=True, inWeight=True)[0]
             
-            # STEP 3: Apply inverted tangents for perfect cycling
-            # Start key in-tangent = inverted end key in-tangent
-            inverted_end_in_angle = end_in_angle + 180.0  # Invert by 180 degrees
+            # STEP 3: Apply matched tangents for perfect cycling (no inversion - direct matching)
+            # Start key in-tangent should match end key out-tangent direction (for smooth pre-infinity)
+            end_out_angle = cmds.keyTangent(curve, time=(end_key, end_key), query=True, outAngle=True)[0]
+            end_out_weight = cmds.keyTangent(curve, time=(end_key, end_key), query=True, outWeight=True)[0]
+            
             cmds.keyTangent(curve, time=(start_key, start_key), 
-                          inAngle=inverted_end_in_angle, inWeight=end_in_weight,
+                          inAngle=end_out_angle, inWeight=end_out_weight,
                           inTangentType='fixed')
             
-            # End key out-tangent = inverted start key out-tangent  
-            inverted_start_out_angle = start_out_angle + 180.0  # Invert by 180 degrees
+            # End key in-tangent should match start key out-tangent direction (for smooth post-infinity)
             cmds.keyTangent(curve, time=(end_key, end_key), 
-                          outAngle=inverted_start_out_angle, outWeight=start_out_weight,
-                          outTangentType='fixed')
+                          inAngle=start_out_angle, inWeight=start_out_weight,
+                          inTangentType='fixed')
             
-            print(f"DEBUG: Applied inverted cycle tangents:")
-            print(f"  Start in: {inverted_end_in_angle:.1f}° (inverted from end in: {end_in_angle:.1f}°)")
-            print(f"  End out: {inverted_start_out_angle:.1f}° (inverted from start out: {start_out_angle:.1f}°)")
+            print(f"DEBUG: Applied matched cycle tangents:")
+            print(f"  Start in: {end_out_angle:.1f}° (matches end out)")
+            print(f"  End in: {start_out_angle:.1f}° (matches start out)")
             
         except Exception as e:
             print(f"DEBUG: Error in directional cycle tangents: {e}")
