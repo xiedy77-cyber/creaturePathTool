@@ -1113,7 +1113,7 @@ class CycleMakerUI:
             cmds.warning(f"Auto-inversion detection failed for {target_attr}: {e}")
             
     def _apply_infinity_to_target(self, target_attr, source_curve):
-        """Apply infinity settings to target attribute curves."""
+        """Apply infinity settings and tangent smoothing to target attribute curves."""
         target_curves = self._find_target_curves(target_attr)
         if not target_curves:
             print(f"DEBUG: WARNING - No curves found for {target_attr}")
@@ -1127,6 +1127,33 @@ class CycleMakerUI:
         else:
             for target_curve in target_curves:
                 self._apply_infinity_from_source(source_curve, target_curve)
+        
+        # Apply tangent smoothing for seamless cycling
+        self._apply_tangent_smoothing_to_curves(target_curves)
+    
+    def _apply_tangent_smoothing_to_curves(self, curves):
+        """Apply tangent smoothing to curves using their full time range."""
+        if not curves:
+            return
+            
+        for curve in curves:
+            if not curve or not cmds.objExists(curve):
+                continue
+                
+            try:
+                # Get the full time range of this curve
+                key_times = cmds.keyframe(curve, query=True, timeChange=True) or []
+                if len(key_times) < 2:
+                    continue
+                    
+                start_time = min(key_times)
+                end_time = max(key_times)
+                
+                # Apply smooth cycle tangents
+                self._ensure_smooth_cycle_tangents([curve], start_time, end_time)
+                
+            except Exception as e:
+                print(f"DEBUG: Error applying tangent smoothing to {curve}: {e}")
                 
     def _find_target_curves(self, target_attr):
         """Find animation curves connected to target attribute using multiple methods."""
@@ -1736,6 +1763,125 @@ class CycleMakerUI:
                         
             except Exception as e:
                 cmds.warning(f"Error copying {source_attr} to {target_attr}: {e}")
+
+    # =========================================================================
+    # SECTION 11: TANGENT SMOOTHING FOR CYCLE CONTINUITY
+    # =========================================================================
+    
+    def _ensure_smooth_cycle_tangents(self, curves, start_time, end_time):
+        """Ensure smooth tangent continuity at cycle boundaries for seamless looping."""
+        if not curves:
+            return
+            
+        # Normalize to list
+        if isinstance(curves, str):
+            curves = [curves]
+            
+        for curve in curves:
+            if not curve or not cmds.objExists(curve):
+                continue
+                
+            self._apply_smooth_cycle_tangents_to_curve(curve, start_time, end_time)
+    
+    def _apply_smooth_cycle_tangents_to_curve(self, curve, start_time, end_time):
+        """Apply smooth cycle tangents to a single curve."""
+        try:
+            # Get all keyframe times on this curve
+            key_times = cmds.keyframe(curve, query=True, timeChange=True) or []
+            if len(key_times) < 2:
+                return
+                
+            # Find start and end keys (closest to start_time and end_time)
+            start_key = min(key_times, key=lambda t: abs(t - start_time))
+            end_key = min(key_times, key=lambda t: abs(t - end_time))
+            
+            if start_key == end_key:
+                return
+            
+            # Ensure values match for perfect cycling
+            start_value = cmds.keyframe(curve, time=(start_key, start_key), query=True, valueChange=True)[0]
+            end_value = cmds.keyframe(curve, time=(end_key, end_key), query=True, valueChange=True)[0]
+            
+            if abs(start_value - end_value) > 0.001:  # Small tolerance for floating point
+                cmds.keyframe(curve, time=(end_key, end_key), valueChange=start_value)
+                print(f"DEBUG: Matched end value to start value for {curve}")
+            
+            # Apply directional tangent smoothing for natural curve flow + cycle continuity
+            self._apply_directional_cycle_tangents(curve, key_times, start_key, end_key)
+                
+        except Exception as e:
+            print(f"DEBUG: Error applying smooth cycle tangents to {curve}: {e}")
+    
+    def _apply_directional_cycle_tangents(self, curve, key_times, start_key, end_key):
+        """Apply tangents that maintain natural curve flow AND cycle continuity."""
+        try:
+            # Find next key after start and previous key before end for natural flow
+            start_idx = key_times.index(start_key)
+            end_idx = key_times.index(end_key)
+            
+            # Get the next key after start (for natural out-tangent direction)
+            next_key = key_times[start_idx + 1] if start_idx + 1 < len(key_times) else None
+            # Get the previous key before end (for natural in-tangent direction)  
+            prev_key = key_times[end_idx - 1] if end_idx - 1 >= 0 else None
+            
+            print(f"DEBUG: Curve {curve} - start:{start_key}, end:{end_key}, next:{next_key}, prev:{prev_key}")
+            
+            # STEP 1: Set natural flow tangents (curve should flow smoothly through keys)
+            if next_key is not None:
+                # First key out-tangent should point toward next key (natural flow)
+                self._set_tangent_toward_key(curve, start_key, next_key, 'out')
+                
+            if prev_key is not None:
+                # Last key in-tangent should point toward previous key (natural flow)
+                self._set_tangent_toward_key(curve, end_key, prev_key, 'in')
+            
+            # STEP 2: Set cycle continuity tangents
+            # Get the tangent angles we just set for natural flow
+            start_out_angle = cmds.keyTangent(curve, time=(start_key, start_key), query=True, outAngle=True)[0]
+            end_out_angle = cmds.keyTangent(curve, time=(end_key, end_key), query=True, outAngle=True)[0]
+            
+            # First key in-tangent should match last key out-tangent (for pre-infinity cycling)
+            cmds.keyTangent(curve, time=(start_key, start_key), 
+                          inAngle=end_out_angle, inTangentType='fixed')
+            
+            # Last key in-tangent should match first key out-tangent (for post-infinity cycling)  
+            cmds.keyTangent(curve, time=(end_key, end_key), 
+                          inAngle=start_out_angle, inTangentType='fixed')
+            
+            print(f"DEBUG: Applied directional cycle tangents - start_out:{start_out_angle}, end_out:{end_out_angle}")
+            
+        except Exception as e:
+            print(f"DEBUG: Error in directional cycle tangents: {e}")
+    
+    def _set_tangent_toward_key(self, curve, from_key, to_key, tangent_type):
+        """Set a tangent to point toward another key for natural curve flow."""
+        try:
+            # Get key values and times
+            from_value = cmds.keyframe(curve, time=(from_key, from_key), query=True, valueChange=True)[0]
+            to_value = cmds.keyframe(curve, time=(to_key, to_key), query=True, valueChange=True)[0]
+            
+            # Calculate angle from from_key toward to_key
+            time_diff = to_key - from_key
+            value_diff = to_value - from_value
+            
+            if abs(time_diff) > 0.001:  # Avoid division by zero
+                # Calculate angle in degrees (Maya uses degrees for tangent angles)
+                import math
+                angle_radians = math.atan2(value_diff, time_diff)
+                angle_degrees = math.degrees(angle_radians)
+                
+                # Apply the tangent
+                if tangent_type == 'out':
+                    cmds.keyTangent(curve, time=(from_key, from_key), 
+                                  outAngle=angle_degrees, outTangentType='fixed')
+                elif tangent_type == 'in':  
+                    cmds.keyTangent(curve, time=(from_key, from_key), 
+                                  inAngle=angle_degrees, inTangentType='fixed')
+                
+                print(f"DEBUG: Set {tangent_type} tangent at {from_key} toward {to_key}: {angle_degrees:.2f}°")
+                
+        except Exception as e:
+            print(f"DEBUG: Error setting tangent toward key: {e}")
 
 
 def launch_cycle_maker():
