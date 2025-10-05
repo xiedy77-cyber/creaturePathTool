@@ -1813,75 +1813,43 @@ class CycleMakerUI:
             print(f"DEBUG: Error applying smooth cycle tangents to {curve}: {e}")
     
     def _apply_directional_cycle_tangents(self, curve, key_times, start_key, end_key):
-        """Apply tangents that maintain natural curve flow AND cycle continuity."""
+        """Apply tangents with smooth middle keys and inverted start/end for cycling."""
         try:
-            # Find next key after start and previous key before end for natural flow
-            start_idx = key_times.index(start_key)
-            end_idx = key_times.index(end_key)
+            # STEP 1: Apply smooth spline tangents to ALL keys first (natural curve flow)
+            for key_time in key_times:
+                cmds.keyTangent(curve, time=(key_time, key_time), 
+                              inTangentType='spline', outTangentType='spline')
             
-            # Get the next key after start (for natural out-tangent direction)
-            next_key = key_times[start_idx + 1] if start_idx + 1 < len(key_times) else None
-            # Get the previous key before end (for natural in-tangent direction)  
-            prev_key = key_times[end_idx - 1] if end_idx - 1 >= 0 else None
+            print(f"DEBUG: Applied spline tangents to all {len(key_times)} keys")
             
-            print(f"DEBUG: Curve {curve} - start:{start_key}, end:{end_key}, next:{next_key}, prev:{prev_key}")
-            
-            # STEP 1: Set natural flow tangents (curve should flow smoothly through keys)
-            if next_key is not None:
-                # First key out-tangent should point toward next key (natural flow)
-                self._set_tangent_toward_key(curve, start_key, next_key, 'out')
-                
-            if prev_key is not None:
-                # Last key in-tangent should point toward previous key (natural flow)
-                self._set_tangent_toward_key(curve, end_key, prev_key, 'in')
-            
-            # STEP 2: Set cycle continuity tangents
-            # Get the tangent angles we just set for natural flow
+            # STEP 2: Get the smoothed tangent angles from start and end keys
             start_out_angle = cmds.keyTangent(curve, time=(start_key, start_key), query=True, outAngle=True)[0]
-            end_out_angle = cmds.keyTangent(curve, time=(end_key, end_key), query=True, outAngle=True)[0]
+            start_out_weight = cmds.keyTangent(curve, time=(start_key, start_key), query=True, outWeight=True)[0]
             
-            # First key in-tangent should match last key out-tangent (for pre-infinity cycling)
+            end_in_angle = cmds.keyTangent(curve, time=(end_key, end_key), query=True, inAngle=True)[0]
+            end_in_weight = cmds.keyTangent(curve, time=(end_key, end_key), query=True, inWeight=True)[0]
+            
+            # STEP 3: Apply inverted tangents for perfect cycling
+            # Start key in-tangent = inverted end key in-tangent
+            inverted_end_in_angle = end_in_angle + 180.0  # Invert by 180 degrees
             cmds.keyTangent(curve, time=(start_key, start_key), 
-                          inAngle=end_out_angle, inTangentType='fixed')
+                          inAngle=inverted_end_in_angle, inWeight=end_in_weight,
+                          inTangentType='fixed')
             
-            # Last key in-tangent should match first key out-tangent (for post-infinity cycling)  
+            # End key out-tangent = inverted start key out-tangent  
+            inverted_start_out_angle = start_out_angle + 180.0  # Invert by 180 degrees
             cmds.keyTangent(curve, time=(end_key, end_key), 
-                          inAngle=start_out_angle, inTangentType='fixed')
+                          outAngle=inverted_start_out_angle, outWeight=start_out_weight,
+                          outTangentType='fixed')
             
-            print(f"DEBUG: Applied directional cycle tangents - start_out:{start_out_angle}, end_out:{end_out_angle}")
+            print(f"DEBUG: Applied inverted cycle tangents:")
+            print(f"  Start in: {inverted_end_in_angle:.1f}° (inverted from end in: {end_in_angle:.1f}°)")
+            print(f"  End out: {inverted_start_out_angle:.1f}° (inverted from start out: {start_out_angle:.1f}°)")
             
         except Exception as e:
             print(f"DEBUG: Error in directional cycle tangents: {e}")
     
-    def _set_tangent_toward_key(self, curve, from_key, to_key, tangent_type):
-        """Set a tangent to point toward another key for natural curve flow."""
-        try:
-            # Get key values and times
-            from_value = cmds.keyframe(curve, time=(from_key, from_key), query=True, valueChange=True)[0]
-            to_value = cmds.keyframe(curve, time=(to_key, to_key), query=True, valueChange=True)[0]
-            
-            # Calculate angle from from_key toward to_key
-            time_diff = to_key - from_key
-            value_diff = to_value - from_value
-            
-            if abs(time_diff) > 0.001:  # Avoid division by zero
-                # Calculate angle in degrees (Maya uses degrees for tangent angles)
-                import math
-                angle_radians = math.atan2(value_diff, time_diff)
-                angle_degrees = math.degrees(angle_radians)
-                
-                # Apply the tangent
-                if tangent_type == 'out':
-                    cmds.keyTangent(curve, time=(from_key, from_key), 
-                                  outAngle=angle_degrees, outTangentType='fixed')
-                elif tangent_type == 'in':  
-                    cmds.keyTangent(curve, time=(from_key, from_key), 
-                                  inAngle=angle_degrees, inTangentType='fixed')
-                
-                print(f"DEBUG: Set {tangent_type} tangent at {from_key} toward {to_key}: {angle_degrees:.2f}°")
-                
-        except Exception as e:
-            print(f"DEBUG: Error setting tangent toward key: {e}")
+# Removed _set_tangent_toward_key - now using spline + inversion approach for cleaner cycling
 
 
 def launch_cycle_maker():
