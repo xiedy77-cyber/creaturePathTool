@@ -2,6 +2,65 @@ import maya.cmds as cmds
 import re
 
 class CycleMakerUI:
+    """
+    Maya Animation Cycle Maker Tool
+    
+    A comprehensive tool for creating seamless animation cycles with automatic left/right 
+    mirroring, X-axis inversion detection, spine processing, and infinity management.
+    
+    MAIN FEATURES:
+    - Automatic rig prefix detection
+    - Left/Right control pairing and mirroring  
+    - Intelligent X-axis inversion detection for different rig conventions
+    - Cycle infinity application with multiple fallback strategies
+    - Spine/centerline inversion for rotateY/Z channels
+    - Time and value offset support for layered animation
+    
+    FILE ORGANIZATION:
+    ==================
+    SECTION 1: INITIALIZATION & SETUP (lines ~30-150)
+        - __init__() - Initialize variables and UI
+        - setup_ui() - Create the main interface
+        
+    SECTION 2: CONTROL MANAGEMENT (lines ~150-250) 
+        - add_selected_controls() - Add controls to left/right lists
+        - remove_selected_controls() - Remove selected controls
+        - load_biped_defaults() / load_quad_defaults() - Preset control lists
+        
+    SECTION 3: UTILITY FUNCTIONS (lines ~250-350)
+        - String manipulation (is_left, is_right, get_other_side)
+        - Rig prefix extraction
+        - Animation curve helpers
+        
+    SECTION 4: X-AXIS INVERSION DETECTION (lines ~350-550)
+        - detect_x_inversion_needed() - Main detection logic
+        - _analyze_translate_x_patterns() - TranslateX movement analysis  
+        - _analyze_rotation_patterns() - Rotation fallback analysis
+        - analyze_all_control_pairs() - Batch analysis
+        
+    SECTION 5: INFINITY MANAGEMENT (lines ~550-750)
+        - _apply_cycle_infinity_mel() - MEL-based infinity application
+        - _apply_cycle_infinity_advanced() - Multi-strategy fallback system
+        - apply_cycle_infinity_for_selection() - Manual infinity application
+        
+    SECTION 6: ANIMATION CORE FUNCTIONS (lines ~750-950)
+        - copy_keys() - Main key copying with auto-inversion
+        - get_key_options() - Paste options configuration
+        - _keyed_attributes() - Find animated attributes
+        
+    SECTION 7: COPY OPERATIONS (lines ~950-1050)
+        - copy_left_to_right() / copy_right_to_left() - Directional copying
+        
+    SECTION 8: SPINE/CENTERLINE PROCESSING (lines ~1050-1150)
+        - invert_spine_channels() - Manual spine inversion
+        - _should_invert_for_spine() - Spine keyword matching
+        - _rebuild_second_half_antiphase() - Antiphase animation creation
+        
+    SECTION 9: UI CALLBACKS & HELPERS (lines ~1150-end)
+        - Event handlers for buttons and checkboxes
+        - Analysis result displays
+        - Cache management
+    """
     def __init__(self):
         self.window = "cycleMakerWin"
         self.left_controls = []
@@ -21,7 +80,14 @@ class CycleMakerUI:
         ]
         self.spine_invert_y_default = True
         self.spine_invert_z_default = True
+        # Auto-detection system for X-axis inversion
+        self.auto_detect_x_inversion = True
+        self.x_inversion_cache = {}  # Cache results: {(left_ctrl, right_ctrl): should_invert_bool}
         self.setup_ui()
+
+    # =========================================================================
+    # SECTION 1: INITIALIZATION & UI SETUP
+    # =========================================================================
 
     def setup_ui(self):
         if cmds.window(self.window, exists=True):
@@ -33,9 +99,10 @@ class CycleMakerUI:
                                            backgroundColor=(0.8, 0.8, 0.8))
         cmds.separator(height=10)
         cmds.text(label="Controls (Select one side, auto-fills other side):")
-        cmds.rowLayout(numberOfColumns=2, adjustableColumn=1)
-        self.left_list_field = cmds.textScrollList(allowMultiSelection=True, height=120)
-        self.right_list_field = cmds.textScrollList(allowMultiSelection=True, height=120)
+        # Left/Right control lists - make both columns equal width
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(250, 250), adjustableColumn=1)
+        self.left_list_field = cmds.textScrollList(allowMultiSelection=True, height=120, width=250)
+        self.right_list_field = cmds.textScrollList(allowMultiSelection=True, height=120, width=250)
         cmds.setParent('..')
         cmds.rowLayout(numberOfColumns=2)
         cmds.button(label="Add Selected", command=self.add_selected_controls)
@@ -52,11 +119,13 @@ class CycleMakerUI:
         cmds.setParent('..')
         cmds.separator(height=10)
         
-        # Copy direction buttons in a row
-        cmds.rowLayout(numberOfColumns=3, columnWidth3=(160, 160, 160), adjustableColumn=2)
-        cmds.button(label="Copy Left → Right", command=self.copy_left_to_right)
-        cmds.button(label="Copy Both Ways", command=self.mirror_keys)
-        cmds.button(label="Copy Right → Left", command=self.copy_right_to_left)
+        # Copy direction buttons in a row (buttons adjacent)
+        # Use adjustableColumn=1 and let Maya size the columns to the buttons so
+        # the two buttons appear next to each other instead of being justified.
+        # Copy buttons - equal width
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1)
+        cmds.button(label="Copy Left → Right", command=self.copy_left_to_right, width=200)
+        cmds.button(label="Copy Right → Left", command=self.copy_right_to_left, width=200)
         cmds.setParent('..')
         # Manual infinity application button
         cmds.rowLayout(numberOfColumns=1, adjustableColumn=1)
@@ -73,6 +142,21 @@ class CycleMakerUI:
         cmds.text(label="Ensure 2+ keys for cycling:")
         self.ensure_two_keys_chk = cmds.checkBox(label='', value=True)  # Default to True for ensuring 2+ keys
         cmds.setParent('..')
+        
+        # Auto-detection for X-axis inversion
+        cmds.separator(height=10)
+        cmds.text(label="X-Axis Auto-Inversion (for different rig conventions):", font="boldLabelFont")
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 240), adjustableColumn=2)
+        cmds.text(label="Auto-detect X-axis inversion:")
+        self.auto_detect_x_chk = cmds.checkBox(label='', value=self.auto_detect_x_inversion, 
+                                               changeCommand=self.on_auto_detect_changed)
+        cmds.setParent('..')
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1)
+        cmds.button(label="Analyze Control Pairs", command=self.analyze_control_pairs_ui)
+        cmds.button(label="Clear Cache", command=self.clear_inversion_cache)
+        cmds.setParent('..')
+        cmds.text(label="Analyzes animation to detect if Left/Right controls need X-axis inversion.", 
+                 font="smallPlainLabelFont")
         
         # Spine/centerline inversion options
         cmds.frameLayout(label="Spine/Centerline Inversion", collapsable=True, collapse=False, marginHeight=6, marginWidth=6)
@@ -95,6 +179,10 @@ class CycleMakerUI:
         cmds.button(label="Load Default Biped Controls", command=self.load_biped_defaults)
         cmds.button(label="Load Default Quadruped Controls", command=self.load_quad_defaults)
         cmds.showWindow(self.window)
+
+    # =========================================================================
+    # SECTION 2: CONTROL MANAGEMENT
+    # =========================================================================
 
     def add_selected_controls(self, *_):
         sel = cmds.ls(selection=True)
@@ -172,8 +260,47 @@ class CycleMakerUI:
                 if left_ctrl in self.left_controls:
                     self.left_controls.remove(left_ctrl)
 
+    # =========================================================================
+    # SECTION 3: UTILITY FUNCTIONS & ANIMATION HELPERS
+    # =========================================================================
+
     # ---------------------
-    # Animation helpers
+    # String manipulation utilities  
+    # ---------------------
+    def is_left(self, name):
+        """Check if control name indicates left side (L_ or _L patterns)."""
+        return bool(re.search(r"(^|:|_)L(_|$)", name))
+
+    def is_right(self, name):
+        """Check if control name indicates right side (R_ or _R patterns)."""
+        return bool(re.search(r"(^|:|_)R(_|$)", name))
+
+    def get_other_side(self, name, left_to_right=True):
+        """Convert left control name to right (or vice versa)."""
+        if left_to_right:
+            # Handle both L_ and _L patterns
+            name = re.sub(r"(^|:|_)L_", r"\1R_", name)
+            name = re.sub(r"_L$", "_R", name)
+            return name
+        else:
+            # Handle both R_ and _R patterns  
+            name = re.sub(r"(^|:|_)R_", r"\1L_", name)
+            name = re.sub(r"_R$", "_L", name)
+            return name
+
+    def extract_rig_prefix(self, control_name):
+        """Extract the rig prefix/namespace from a control name.
+        Examples: 
+        - 'the_tyrant_rig:IKLeg_R' -> 'the_tyrant_rig:'
+        - 'tigerA_rigMain_01_:L_arm_CTL' -> 'tigerA_rigMain_01_:'
+        - 'IKLeg_R' -> ''
+        """
+        if ':' in control_name:
+            return control_name.split(':', 1)[0] + ':'
+        return ''
+
+    # ---------------------
+    # Animation curve utilities
     # ---------------------
     def _anim_curve_for_attr(self, attr_plug):
         """Return the first animCurve node connected to the given attribute plug.
@@ -252,9 +379,10 @@ class CycleMakerUI:
                     except Exception:
                         pass
 
-    # ---------------------
-    # Advanced infinity application with multi-layer fallback & diagnostics
-    # ---------------------
+    # =========================================================================
+    # SECTION 5: INFINITY MANAGEMENT
+    # =========================================================================
+
     def _apply_cycle_infinity_advanced(self, curves, verbose=True):
         """Attempt to set pre/post infinity to cycle with multiple strategies and diagnostics.
         Strategies per curve:
@@ -560,9 +688,10 @@ class CycleMakerUI:
                     attrs.append(plug.split('.')[-1])
         return list(dict.fromkeys(attrs))  # unique, preserve order
 
-    # ---------------------
-    # Spine inversion helpers
-    # ---------------------
+    # =========================================================================
+    # SECTION 8: SPINE/CENTERLINE PROCESSING
+    # =========================================================================
+
     def _spine_keywords(self):
         """Return lowercase list of configured spine keywords from UI."""
         try:
@@ -698,6 +827,10 @@ class CycleMakerUI:
         except Exception:
             pass
 
+    # =========================================================================
+    # SECTION 6: ANIMATION CORE FUNCTIONS
+    # =========================================================================
+
     def get_key_options(self):
         """Get common key options for copy/paste operations."""
         time_offset = cmds.intField(self.time_offset_field, query=True, value=True)
@@ -711,147 +844,223 @@ class CycleMakerUI:
         }
 
     def copy_keys(self, source_ctrl, target_ctrl):
-        """Copy keys from source to target control."""
-        prefix = cmds.textField(self.prefix_field, query=True, text=True)
-        source_full = f"{prefix}{source_ctrl}" if not source_ctrl.startswith(prefix) else source_ctrl
-        target_full = f"{prefix}{target_ctrl}" if not target_ctrl.startswith(prefix) else target_ctrl
-
-        # Safety: don't allow copying onto the same control
+        """Copy keys from source to target control with auto-inversion and infinity handling."""
+        # Validate and get full control names
+        source_full, target_full = self._get_full_control_names(source_ctrl, target_ctrl)
+        if not source_full or not target_full:
+            return
+            
+        # Safety check: don't copy to same control
         if source_full == target_full:
             cmds.warning(f"Source and target resolve to the same node '{source_full}'. Skipping.")
             return
         
-        if cmds.objExists(source_full) and cmds.objExists(target_full):
-            # Determine which source attributes actually have animation
-            source_keyed_attrs = self._keyed_attributes(source_full)
-            copied_any = False
-            if source_keyed_attrs:
-                for attr in source_keyed_attrs:
-                    source_attr = f"{source_full}.{attr}"
-                    target_attr = f"{target_full}.{attr}"
-                    # Skip if target doesn't have this attribute
+        if not (cmds.objExists(source_full) and cmds.objExists(target_full)):
+            cmds.warning(f"Control not found: {source_full} or {target_full}")
+            return
+            
+        # Get animated attributes and copy each one
+        source_keyed_attrs = self._keyed_attributes(source_full)
+        if not source_keyed_attrs:
+            cmds.warning(f"No keyed attributes found on source {source_full}.")
+            return
+            
+        copied_any = False
+        for attr in source_keyed_attrs:
+            if self._copy_single_attribute(source_full, target_full, attr, source_ctrl, target_ctrl):
+                copied_any = True
+                
+        if not copied_any:
+            cmds.warning(f"No matching attributes on target {target_full} for source keyed attributes: {source_keyed_attrs}")
+
+    def _get_full_control_names(self, source_ctrl, target_ctrl):
+        """Get full control names including prefix."""
+        prefix = cmds.textField(self.prefix_field, query=True, text=True)
+        source_full = f"{prefix}{source_ctrl}" if not source_ctrl.startswith(prefix) else source_ctrl
+        target_full = f"{prefix}{target_ctrl}" if not target_ctrl.startswith(prefix) else target_ctrl
+        return source_full, target_full
+        
+    def _copy_single_attribute(self, source_full, target_full, attr, source_ctrl, target_ctrl):
+        """Copy animation for a single attribute from source to target."""
+        source_attr = f"{source_full}.{attr}"
+        target_attr = f"{target_full}.{attr}"
+        
+        # Skip if target doesn't have this attribute
+        if not self._target_has_attribute(target_full, attr):
+            return False
+            
+        # Get source animation curve
+        source_curve = self._anim_curve_for_attr(source_attr)
+        if not source_curve:
+            return False
+            
+        # Copy and paste the keys
+        if not self._copy_and_paste_keys(source_attr, target_attr, source_curve):
+            return False
+            
+        # Apply post-processing (inversion, infinity)
+        self._apply_post_processing(target_attr, attr, source_ctrl, target_ctrl, source_curve)
+        return True
+        
+    def _target_has_attribute(self, target_full, attr):
+        """Check if target control has the specified attribute."""
+        try:
+            return cmds.attributeQuery(attr, node=target_full, exists=True)
+        except Exception:
+            return False
+            
+    def _copy_and_paste_keys(self, source_attr, target_attr, source_curve):
+        """Copy keys from source to target attribute."""
+        # Get time range
+        time_range = cmds.keyframe(source_curve, query=True, timeChange=True)
+        if not time_range:
+            return False
+            
+        start_t = min(time_range)
+        end_t = max(time_range)
+        
+        # Copy keys from source
+        try:
+            cmds.copyKey(source_attr, time=(start_t, end_t), includeUpperBound=True)
+        except Exception as e:
+            cmds.warning(f"copyKey failed on {source_attr}: {e}")
+            return False
+            
+        # Handle locked attributes
+        relock = self._handle_attribute_lock(target_attr, unlock=True)
+        
+        # Paste keys with fallback
+        paste_success = self._paste_keys_with_fallback(target_attr)
+        
+        # Restore lock state
+        if relock:
+            self._handle_attribute_lock(target_attr, lock=True)
+            
+        return paste_success
+        
+    def _handle_attribute_lock(self, attr, unlock=False, lock=False):
+        """Handle locking/unlocking of attributes. Returns True if attribute was locked."""
+        try:
+            is_locked = cmds.getAttr(attr, lock=True)
+            if unlock and is_locked:
+                cmds.setAttr(attr, lock=False)
+                return True
+            elif lock:
+                cmds.setAttr(attr, lock=True)
+        except Exception:
+            pass
+        return False
+        
+    def _paste_keys_with_fallback(self, target_attr):
+        """Paste keys with fallback options."""
+        paste_opts = self.get_key_options()
+        
+        # Primary paste attempt
+        try:
+            cmds.pasteKey(target_attr, **paste_opts)
+            cmds.refresh()  # Allow Maya to process
+            return True
+        except Exception as e:
+            cmds.warning(f"pasteKey failed on {target_attr}: {e}")
+            
+        # Fallback paste attempt
+        try:
+            cmds.pasteKey(target_attr, option='replaceCompletely')
+            cmds.refresh()
+            return True
+        except Exception as e2:
+            cmds.warning(f"pasteKey fallback failed on {target_attr}: {e2}")
+            return False
+            
+    def _apply_post_processing(self, target_attr, attr, source_ctrl, target_ctrl, source_curve):
+        """Apply X-axis inversion and infinity settings after key paste."""
+        # Apply auto-inversion for translateX
+        if self.auto_detect_x_inversion and attr == 'translateX':
+            self._apply_auto_x_inversion(target_attr, source_ctrl, target_ctrl)
+            
+        # Apply infinity settings
+        self._apply_infinity_to_target(target_attr, source_curve)
+        
+    def _apply_auto_x_inversion(self, target_attr, source_ctrl, target_ctrl):
+        """Apply automatic X-axis inversion if needed."""
+        try:
+            # Check if this is a left<->right pair
+            source_is_left = self.is_left(source_ctrl)
+            source_is_right = self.is_right(source_ctrl)
+            target_is_left = self.is_left(target_ctrl)
+            target_is_right = self.is_right(target_ctrl)
+            
+            if not ((source_is_left and target_is_right) or (source_is_right and target_is_left)):
+                return  # Not a left<->right pair
+                
+            # Detect and apply inversion if needed
+            inversion_needed = self.detect_x_inversion_needed(source_ctrl, target_ctrl)
+            if inversion_needed:
+                cmds.scaleKey(target_attr, valueScale=-1.0)
+                print(f"Applied X-axis inversion to {target_attr}")
+            else:
+                print(f"No X-axis inversion needed for {target_attr}")
+                
+        except Exception as e:
+            cmds.warning(f"Auto-inversion detection failed for {target_attr}: {e}")
+            
+    def _apply_infinity_to_target(self, target_attr, source_curve):
+        """Apply infinity settings to target attribute curves."""
+        target_curves = self._find_target_curves(target_attr)
+        if not target_curves:
+            print(f"DEBUG: WARNING - No curves found for {target_attr}")
+            return
+            
+        try:
+            force_cycle = cmds.checkBox(self.force_cycle_chk, query=True, value=True)
+        except Exception:
+            force_cycle = False
+            
+        if force_cycle:
+            self._apply_cycle_infinity_mel(target_curves)
+        else:
+            for target_curve in target_curves:
+                self._apply_infinity_from_source(source_curve, target_curve)
+                
+    def _find_target_curves(self, target_attr):
+        """Find animation curves connected to target attribute using multiple methods."""
+        # Method 1: keyframe query
+        try:
+            curves = cmds.keyframe(target_attr, query=True, name=True) or []
+            if curves:
+                return curves
+        except Exception:
+            pass
+            
+        # Method 2: listConnections with animCurve type filter
+        try:
+            conns = cmds.listConnections(target_attr, source=True, destination=False, type='animCurve') or []
+            curves = [c for c in conns if c and cmds.objExists(c) and cmds.nodeType(c).startswith('animCurve')]
+            if curves:
+                return curves
+        except Exception:
+            pass
+            
+        # Method 3: General listConnections and filter
+        try:
+            all_conns = cmds.listConnections(target_attr, source=True, destination=False) or []
+            curves = []
+            for conn in all_conns:
+                if conn and cmds.objExists(conn):
                     try:
-                        if not cmds.attributeQuery(attr, node=target_full, exists=True):
-                            continue
+                        if cmds.nodeType(conn).startswith('animCurve'):
+                            curves.append(conn)
                     except Exception:
                         continue
-                    
-                    # Check if source attribute has animation
-                    source_curve = self._anim_curve_for_attr(source_attr)
-                    if source_curve:
-                        time_range = cmds.keyframe(source_curve, query=True, timeChange=True)
-                        # Ensure ordered [start, end]
-                        if time_range:
-                            start_t = min(time_range)
-                            end_t = max(time_range)
-                            # Copy keyframes
-                            try:
-                                cmds.copyKey(source_attr, time=(start_t, end_t), includeUpperBound=True)
-                            except Exception as e:
-                                cmds.warning(f"copyKey failed on {source_attr}: {e}")
-                                continue
+            return curves
+        except Exception:
+            pass
+            
+        return []
 
-                            # Temporarily unlock target attribute if locked
-                            relock = False
-                            try:
-                                if cmds.getAttr(target_attr, lock=True):
-                                    relock = True
-                                    cmds.setAttr(target_attr, lock=False)
-                            except Exception:
-                                pass
-
-                            paste_opts = self.get_key_options()
-                            try:
-                                cmds.pasteKey(target_attr, **paste_opts)
-                            except Exception as e:
-                                cmds.warning(f"pasteKey failed on {target_attr}: {e}")
-                                # Try minimal flags as fallback
-                                try:
-                                    cmds.pasteKey(target_attr, option='replaceCompletely')
-                                except Exception as e2:
-                                    cmds.warning(f"pasteKey fallback failed on {target_attr}: {e2}")
-                                    if relock:
-                                        try:
-                                            cmds.setAttr(target_attr, lock=True)
-                                        except Exception:
-                                            pass
-                                    continue
-
-                            # IMPORTANT: Allow Maya to process the paste operation before applying infinity
-                            cmds.refresh()
-                            
-                            # Verify the paste worked by checking for keys
-                            try:
-                                key_count = cmds.keyframe(target_attr, query=True, keyframeCount=True)
-                            except Exception as key_e:
-                                pass
-                            
-                            # Note: spine inversion is now a separate manual process via UI button
-
-                            # Restore lock if needed
-                            if relock:
-                                try:
-                                    cmds.setAttr(target_attr, lock=True)
-                                except Exception:
-                                    pass
-                            copied_any = True
-                            
-                            # Apply infinity settings using MEL commands
-                            # Find all animCurves influencing this attribute AFTER paste is complete
-                            target_curves = []
-                            
-                            # Method 1: keyframe query
-                            try:
-                                target_curves = cmds.keyframe(target_attr, query=True, name=True) or []
-                            except Exception as e:
-                                pass
-                            
-                            # Method 2: listConnections with animCurve type filter
-                            if not target_curves:
-                                try:
-                                    conns = cmds.listConnections(target_attr, source=True, destination=False, type='animCurve') or []
-                                    target_curves = [c for c in conns if c and cmds.objExists(c) and cmds.nodeType(c).startswith('animCurve')]
-                                except Exception as e2:
-                                    pass
-                            
-                            # Method 3: General listConnections and filter
-                            if not target_curves:
-                                try:
-                                    all_conns = cmds.listConnections(target_attr, source=True, destination=False) or []
-                                    for conn in all_conns:
-                                        if conn and cmds.objExists(conn):
-                                            try:
-                                                node_type = cmds.nodeType(conn)
-                                                if node_type and node_type.startswith('animCurve'):
-                                                    target_curves.append(conn)
-                                            except Exception:
-                                                continue
-                                except Exception as e3:
-                                    pass
-                            
-                            # Apply infinity to target curves
-                            if target_curves:
-                                try:
-                                    force_cycle = cmds.checkBox(self.force_cycle_chk, query=True, value=True)
-                                except Exception:
-                                    force_cycle = False
-                                    
-                                if force_cycle:
-                                    # Force cycle infinity using MEL
-                                    self._apply_cycle_infinity_mel(target_curves)
-                                else:
-                                    # Copy infinity from source using MEL
-                                    for target_curve in target_curves:
-                                        self._apply_infinity_from_source(source_curve, target_curve)
-                            else:
-                                print(f"DEBUG: WARNING - No curves found for {target_attr} after trying all methods!")
-            if not copied_any:
-                if not source_keyed_attrs:
-                    cmds.warning(f"No keyed attributes found on source {source_full}.")
-                else:
-                    cmds.warning(f"No matching attributes on target {target_full} for source keyed attributes: {source_keyed_attrs}")
-        else:
-            cmds.warning(f"Control not found: {source_full} or {target_full}")
+    # =========================================================================
+    # SECTION 7: COPY OPERATIONS
+    # =========================================================================
 
     def copy_left_to_right(self, *_):
         """Copy animation from left controls to right controls."""
@@ -891,56 +1100,286 @@ class CycleMakerUI:
                 continue
             self.copy_keys(right_ctrl, left_ctrl)
 
-    def mirror_keys(self, *_):
-        """Copy keys in both directions."""
-        # Store original values
-        orig_time_offset = cmds.intField(self.time_offset_field, query=True, value=True)
-        orig_float_offset = cmds.intField(self.float_offset_field, query=True, value=True)
-        
-        # Copy left to right with positive offset
-        cmds.intField(self.time_offset_field, edit=True, value=abs(orig_time_offset))
-        cmds.intField(self.float_offset_field, edit=True, value=abs(orig_float_offset))
-        self.copy_left_to_right()
-        
-        # Copy right to left with negative offset
-        cmds.intField(self.time_offset_field, edit=True, value=-abs(orig_time_offset))
-        cmds.intField(self.float_offset_field, edit=True, value=-abs(orig_float_offset))
-        self.copy_right_to_left()
-        
-        # Restore original values
-        cmds.intField(self.time_offset_field, edit=True, value=orig_time_offset)
-        cmds.intField(self.float_offset_field, edit=True, value=orig_float_offset)
 
-    def is_left(self, name):
-        # Accepts left controls with any prefix, e.g. ...:L_... or ..._L
-        return bool(re.search(r"(^|:|_)L(_|$)", name))
 
-    def is_right(self, name):
-        # Accepts right controls with any prefix, e.g. ...:R_... or ..._R
-        return bool(re.search(r"(^|:|_)R(_|$)", name))
 
-    def get_other_side(self, name, left_to_right=True):
-        if left_to_right:
-            # Handle both L_ and _L patterns
-            name = re.sub(r"(^|:|_)L_", r"\1R_", name)
-            name = re.sub(r"_L$", "_R", name)
-            return name
-        else:
-            # Handle both R_ and _R patterns
-            name = re.sub(r"(^|:|_)R_", r"\1L_", name)
-            name = re.sub(r"_R$", "_L", name)
-            return name
 
-    def extract_rig_prefix(self, control_name):
-        """Extract the rig prefix/namespace from a control name.
-        Examples: 
-        - 'the_tyrant_rig:IKLeg_R' -> 'the_tyrant_rig:'
-        - 'tigerA_rigMain_01_:L_arm_CTL' -> 'tigerA_rigMain_01_:'
-        - 'IKLeg_R' -> ''
+    # =========================================================================
+    # SECTION 4: X-AXIS INVERSION DETECTION SYSTEM
+    # =========================================================================
+
+    def detect_x_inversion_needed(self, left_ctrl, right_ctrl, verbose=False):
         """
-        if ':' in control_name:
-            return control_name.split(':', 1)[0] + ':'
-        return ''
+        Analyze existing animation on left/right control pair to determine if X-axis inversion is needed.
+        
+        Returns:
+            bool: True if X-axis values should be inverted when copying, False if they should stay the same
+            
+        Logic:
+        - If left moves +X and right moves +X at the same time -> need inversion (opposite rig convention)
+        - If left moves +X and right moves -X at the same time -> no inversion needed (mirrored rig convention)
+        """
+        # Check cache first
+        cache_key = (left_ctrl, right_ctrl)
+        if cache_key in self.x_inversion_cache:
+            if verbose:
+                cached_result = self.x_inversion_cache[cache_key]
+                print(f"Using cached inversion result for {left_ctrl}<->{right_ctrl}: {cached_result}")
+            return self.x_inversion_cache[cache_key]
+        
+        prefix = cmds.textField(self.prefix_field, query=True, text=True)
+        left_full = f"{prefix}{left_ctrl}" if not left_ctrl.startswith(prefix) else left_ctrl
+        right_full = f"{prefix}{right_ctrl}" if not right_ctrl.startswith(prefix) else right_ctrl
+        
+        if not (cmds.objExists(left_full) and cmds.objExists(right_full)):
+            if verbose:
+                print(f"Controls don't exist: {left_full} or {right_full}")
+            return False
+        
+        # Analyze translateX patterns
+        inversion_needed = self._analyze_translate_x_patterns(left_full, right_full, verbose)
+        
+        # If translateX analysis is inconclusive, try rotation analysis
+        if inversion_needed is None:
+            inversion_needed = self._analyze_rotation_patterns(left_full, right_full, verbose)
+        
+        # Default to False if still inconclusive
+        if inversion_needed is None:
+            inversion_needed = False
+            if verbose:
+                print(f"Analysis inconclusive for {left_ctrl}<->{right_ctrl}, defaulting to no inversion")
+        
+        # Cache the result
+        self.x_inversion_cache[cache_key] = inversion_needed
+        
+        if verbose:
+            print(f"X-inversion analysis for {left_ctrl}<->{right_ctrl}: {'INVERT' if inversion_needed else 'NO INVERSION'}")
+        
+        return inversion_needed
+    
+    def _analyze_translate_x_patterns(self, left_full, right_full, verbose=False):
+        """Analyze translateX animation patterns to detect inversion needs."""
+        left_tx_attr = f"{left_full}.translateX"
+        right_tx_attr = f"{right_full}.translateX"
+        
+        # Get animation curves for translateX
+        left_curve = self._anim_curve_for_attr(left_tx_attr)
+        right_curve = self._anim_curve_for_attr(right_tx_attr)
+        
+        if not (left_curve and right_curve):
+            if verbose:
+                print(f"Missing translateX animation: L={bool(left_curve)} R={bool(right_curve)}")
+            return None
+        
+        # Get keyframe times that exist on both curves
+        try:
+            left_times = set(cmds.keyframe(left_curve, query=True, timeChange=True) or [])
+            right_times = set(cmds.keyframe(right_curve, query=True, timeChange=True) or [])
+            common_times = sorted(left_times.intersection(right_times))
+            
+            if len(common_times) < 2:
+                if verbose:
+                    print(f"Not enough common keyframes for analysis: {len(common_times)}")
+                return None
+            
+            # Sample values at common times
+            correlation_samples = []
+            for time in common_times[:10]:  # Limit to first 10 samples for performance
+                try:
+                    left_val = cmds.getAttr(left_tx_attr, time=time)
+                    right_val = cmds.getAttr(right_tx_attr, time=time)
+                    correlation_samples.append((left_val, right_val))
+                except Exception:
+                    continue
+            
+            if len(correlation_samples) < 2:
+                if verbose:
+                    print("Not enough valid samples for correlation analysis")
+                return None
+            
+            # Calculate correlation direction
+            # If left and right move in same direction -> need inversion
+            # If left and right move in opposite directions -> no inversion needed
+            same_direction_count = 0
+            opposite_direction_count = 0
+            
+            for i in range(1, len(correlation_samples)):
+                left_prev, right_prev = correlation_samples[i-1]
+                left_curr, right_curr = correlation_samples[i]
+                
+                left_delta = left_curr - left_prev
+                right_delta = right_curr - right_prev
+                
+                # Skip if no significant movement
+                if abs(left_delta) < 0.001 and abs(right_delta) < 0.001:
+                    continue
+                
+                # Check if movements are in same direction or opposite
+                if (left_delta > 0 and right_delta > 0) or (left_delta < 0 and right_delta < 0):
+                    same_direction_count += 1
+                elif (left_delta > 0 and right_delta < 0) or (left_delta < 0 and right_delta > 0):
+                    opposite_direction_count += 1
+            
+            if verbose:
+                print(f"TranslateX analysis: Same direction={same_direction_count}, Opposite direction={opposite_direction_count}")
+            
+            # Determine result based on predominant pattern
+            if same_direction_count > opposite_direction_count:
+                return True  # Need inversion - they move the same way but should be mirrored
+            elif opposite_direction_count > same_direction_count:
+                return False  # No inversion - already mirrored correctly
+            else:
+                return None  # Inconclusive
+                
+        except Exception as e:
+            if verbose:
+                print(f"Error in translateX analysis: {e}")
+            return None
+    
+    def _analyze_rotation_patterns(self, left_full, right_full, verbose=False):
+        """Analyze rotation patterns as fallback to translateX analysis."""
+        # Check rotateY patterns (often the most telling for left/right differences)
+        left_ry_attr = f"{left_full}.rotateY"
+        right_ry_attr = f"{right_full}.rotateY"
+        
+        left_curve = self._anim_curve_for_attr(left_ry_attr)
+        right_curve = self._anim_curve_for_attr(right_ry_attr)
+        
+        if not (left_curve and right_curve):
+            if verbose:
+                print(f"Missing rotateY animation: L={bool(left_curve)} R={bool(right_curve)}")
+            return None
+        
+        try:
+            # Get average values over time
+            left_times = cmds.keyframe(left_curve, query=True, timeChange=True) or []
+            right_times = cmds.keyframe(right_curve, query=True, timeChange=True) or []
+            
+            # Sample a few values
+            left_samples = []
+            right_samples = []
+            
+            for time in left_times[:5]:
+                try:
+                    left_samples.append(cmds.getAttr(left_ry_attr, time=time))
+                except Exception:
+                    pass
+            
+            for time in right_times[:5]:
+                try:
+                    right_samples.append(cmds.getAttr(right_ry_attr, time=time))
+                except Exception:
+                    pass
+            
+            if not (left_samples and right_samples):
+                return None
+            
+            left_avg = sum(left_samples) / len(left_samples)
+            right_avg = sum(right_samples) / len(right_samples)
+            
+            if verbose:
+                print(f"RotateY averages: L={left_avg:.3f}, R={right_avg:.3f}")
+            
+            # If rotations have same sign, they might need inversion
+            # This is a heuristic - not foolproof
+            if (left_avg > 0 and right_avg > 0) or (left_avg < 0 and right_avg < 0):
+                return True  # Likely need inversion
+            else:
+                return False  # Likely already mirrored
+                
+        except Exception as e:
+            if verbose:
+                print(f"Error in rotation analysis: {e}")
+            return None
+    
+    def analyze_all_control_pairs(self, verbose=False):
+        """Analyze all current left/right control pairs and update the inversion cache."""
+        if not self.left_controls or not self.right_controls:
+            cmds.warning("No control pairs to analyze")
+            return
+        
+        results = {}
+        count = min(len(self.left_controls), len(self.right_controls))
+        
+        print(f"Analyzing {count} control pairs for X-axis inversion needs...")
+        
+        for i in range(count):
+            left_ctrl = self.left_controls[i]
+            right_ctrl = self.right_controls[i] if i < len(self.right_controls) else self.get_other_side(left_ctrl, True)
+            
+            if left_ctrl and right_ctrl:
+                inversion_needed = self.detect_x_inversion_needed(left_ctrl, right_ctrl, verbose)
+                results[f"{left_ctrl}<->{right_ctrl}"] = inversion_needed
+        
+        # Summary
+        invert_count = sum(1 for need_invert in results.values() if need_invert)
+        no_invert_count = len(results) - invert_count
+        
+        print(f"Analysis complete: {invert_count} pairs need inversion, {no_invert_count} pairs don't")
+        
+        if verbose:
+            for pair, needs_invert in results.items():
+                print(f"  {pair}: {'INVERT' if needs_invert else 'NO INVERSION'}")
+        
+        return results
+
+    # =========================================================================
+    # SECTION 9: UI CALLBACKS & HELPERS
+    # =========================================================================
+
+    def on_auto_detect_changed(self, *_):
+        """Callback when auto-detect checkbox changes."""
+        try:
+            self.auto_detect_x_inversion = cmds.checkBox(self.auto_detect_x_chk, query=True, value=True)
+            status = "enabled" if self.auto_detect_x_inversion else "disabled"
+            print(f"Auto-detection of X-axis inversion {status}")
+        except Exception:
+            pass
+
+    def analyze_control_pairs_ui(self, *_):
+        """UI callback to analyze all control pairs and display results."""
+        try:
+            results = self.analyze_all_control_pairs(verbose=True)
+            if results:
+                # Clear cache first to force fresh analysis
+                self.x_inversion_cache.clear()
+                results = self.analyze_all_control_pairs(verbose=True)
+                
+                # Show summary dialog
+                invert_pairs = [pair for pair, needs in results.items() if needs]
+                no_invert_pairs = [pair for pair, needs in results.items() if not needs]
+                
+                summary_msg = f"Analysis Results:\n\n"
+                summary_msg += f"Need X-Inversion ({len(invert_pairs)} pairs):\n"
+                for pair in invert_pairs:
+                    summary_msg += f"  • {pair}\n"
+                
+                summary_msg += f"\nNo Inversion Needed ({len(no_invert_pairs)} pairs):\n"
+                for pair in no_invert_pairs:
+                    summary_msg += f"  • {pair}\n"
+                
+                summary_msg += f"\nThese settings will be automatically applied when copying keys."
+                
+                cmds.confirmDialog(title="X-Axis Inversion Analysis", 
+                                 message=summary_msg, 
+                                 button=['OK'])
+            else:
+                cmds.warning("No control pairs to analyze. Please add left/right controls first.")
+        except Exception as e:
+            cmds.warning(f"Analysis failed: {e}")
+
+    def clear_inversion_cache(self, *_):
+        """Clear the X-axis inversion detection cache."""
+        cache_size = len(self.x_inversion_cache)
+        self.x_inversion_cache.clear()
+        print(f"Cleared X-axis inversion cache ({cache_size} entries)")
+        cmds.confirmDialog(title="Cache Cleared", 
+                         message=f"Cleared {cache_size} cached inversion analysis results.\nNext copy operation will re-analyze control pairs.", 
+                         button=['OK'])
+
+    # =========================================================================
+    # SECTION 2: CONTROL MANAGEMENT (continued)
+    # =========================================================================
 
     def load_biped_defaults(self, *_):
         lefts = ["L_leg_CTL", "L_arm_CTL", "L_foot_CTL", "L_hand_CTL", "L_clavicle_CTL"]
@@ -1099,6 +1538,7 @@ class CycleMakerUI:
 
 
 def launch_cycle_maker():
+    """Launch the Cycle Maker UI tool."""
     CycleMakerUI()
 
 if __name__ == "__main__":
