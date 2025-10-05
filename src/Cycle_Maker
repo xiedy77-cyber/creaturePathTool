@@ -1398,10 +1398,127 @@ class CycleMakerUI:
                 # Apply wing control specific post-processing (always invert X for wings)
                 self._apply_wing_post_processing(target_attr, attr, source_full, target_full, source_curve)
                 
-                # Set infinity to cycle for Copy with Offset functionality
-                cmds.setInfinity(target_attr, preInfinite='cycle', postInfinite='cycle')
+                # Set infinity to cycle for Copy with Offset functionality - ensure it's applied
+                self._apply_cycle_infinity(target_attr)
 
     
+    def _smooth_cycle_transitions(self, target_attr):
+        """Smooth the tangents at cycle boundaries for seamless looping."""
+        try:
+            # Get all keyframes for this attribute
+            keyframes = cmds.keyframe(target_attr, query=True, timeChange=True)
+            if not keyframes or len(keyframes) < 2:
+                return
+            
+            # Get first and last keyframe times and values
+            first_time = min(keyframes)
+            last_time = max(keyframes)
+            
+            first_value = cmds.keyframe(target_attr, time=(first_time,), query=True, valueChange=True)[0]
+            last_value = cmds.keyframe(target_attr, time=(last_time,), query=True, valueChange=True)[0]
+            
+            # Calculate cycle length
+            cycle_length = last_time - first_time
+            
+            # For smooth cycling, we need the derivative (slope) at the end to match the beginning
+            # Get the slope at the first keyframe (outgoing tangent)
+            first_out_tangent = cmds.keyTangent(target_attr, time=(first_time,), query=True, outAngle=True)[0]
+            first_out_weight = cmds.keyTangent(target_attr, time=(first_time,), query=True, outWeight=True)[0]
+            
+            # Set the last keyframe's incoming tangent to match the first keyframe's outgoing tangent
+            # This creates continuity in the derivative for smooth cycling
+            cmds.keyTangent(target_attr, time=(last_time,), inAngle=first_out_tangent, inWeight=first_out_weight)
+            
+            # Also ensure the tangent types are consistent for smooth transitions
+            cmds.keyTangent(target_attr, time=(first_time,), outTangentType='linear')
+            cmds.keyTangent(target_attr, time=(last_time,), inTangentType='linear')
+            
+            # For even smoother transitions, we can adjust intermediate tangents if there are enough keyframes
+            if len(keyframes) >= 4:
+                # Get second and second-to-last keyframes
+                second_time = sorted(keyframes)[1]
+                second_last_time = sorted(keyframes)[-2]
+                
+                # Apply smoothing to reduce jarring transitions
+                cmds.keyTangent(target_attr, time=(second_time,), inTangentType='spline', outTangentType='spline')
+                cmds.keyTangent(target_attr, time=(second_last_time,), inTangentType='spline', outTangentType='spline')
+                
+        except Exception as e:
+            # Don't warn for tangent smoothing failures - it's optional enhancement
+            pass
+
+    def _apply_cycle_infinity(self, target_attr):
+        """Apply cycle infinity to target attribute with error handling and tangent smoothing."""
+        print(f"DEBUG: Attempting to set cycle infinity on: {target_attr}")
+        
+        # First smooth the cycle transitions for seamless looping
+        self._smooth_cycle_transitions(target_attr)
+        
+        # Get the animation curve first
+        anim_curve = self._anim_curve_for_attr(target_attr)
+        if not anim_curve:
+            print(f"DEBUG: No animation curve found for {target_attr}")
+            return
+        
+        print(f"DEBUG: Found animation curve: {anim_curve}")
+        
+        # Method 1: Try selecting keys and using MEL (most reliable)
+        try:
+            import maya.mel as mel
+            print(f"DEBUG: Method 1 - Selecting keys and using MEL")
+            
+            # Select all keys on this attribute
+            cmds.selectKey(target_attr, clear=True)
+            cmds.selectKey(target_attr, add=True)
+            
+            # Use MEL setInfinity command
+            mel.eval('setInfinity -pri "cycle" -poi "cycle";')
+            
+            cmds.select(clear=True)  # Clear selection
+            print(f"DEBUG: Method 1 completed - MEL setInfinity executed")
+            
+        except Exception as e:
+            print(f"DEBUG: Method 1 (MEL) failed: {e}")
+            
+            # Method 2: Direct attribute setting on animation curve
+            try:
+                print(f"DEBUG: Method 2 - Direct attribute setting on curve")
+                cmds.setAttr(f"{anim_curve}.preInfinity", 3)
+                cmds.setAttr(f"{anim_curve}.postInfinity", 3)
+                print(f"DEBUG: Method 2 completed - Direct setAttr on curve")
+                
+            except Exception as e2:
+                print(f"DEBUG: Method 2 (setAttr) failed: {e2}")
+                
+                # Method 3: Original cmds.setInfinity approach
+                try:
+                    print(f"DEBUG: Method 3 - Original cmds.setInfinity")
+                    cmds.setInfinity(target_attr, preInfinite=3, postInfinite=3)
+                    print(f"DEBUG: Method 3 completed - cmds.setInfinity executed")
+                    
+                except Exception as e3:
+                    print(f"DEBUG: Method 3 failed: {e3}")
+                    cmds.warning(f"All methods failed to set cycle infinity on {target_attr}")
+        
+        # Verify what was actually set by checking the animation curve
+        try:
+            # Get the animation curve for this attribute
+            anim_curve = self._anim_curve_for_attr(target_attr)
+            if anim_curve:
+                pre_inf = cmds.getAttr(f"{anim_curve}.preInfinity")
+                post_inf = cmds.getAttr(f"{anim_curve}.postInfinity")
+                print(f"DEBUG: Verification - {anim_curve} preInfinity: {pre_inf}, postInfinity: {post_inf}")
+                
+                # Check if the values are what we expect (3 for cycle)
+                if pre_inf == 3 and post_inf == 3:
+                    print(f"DEBUG: SUCCESS - Cycle infinity correctly set on {target_attr}")
+                else:
+                    print(f"DEBUG: WARNING - Expected 3,3 but got {pre_inf},{post_inf} on {target_attr}")
+            else:
+                print(f"DEBUG: No animation curve found for {target_attr} - infinity not applicable")
+        except Exception as e:
+            print(f"DEBUG: Could not verify infinity settings: {e}")
+
     def _copy_current_values(self, source_ctrl, target_ctrl, time_offset=0, value_offset=0.0):
         """Copy current channel values from source to target control with mirroring logic."""
         # Common animatable attributes for transforms
@@ -1448,6 +1565,14 @@ class CycleMakerUI:
                     
                     # Set the value on target
                     cmds.setAttr(target_attr, final_value)
+                    
+                    # Create a keyframe to enable infinity settings for Copy with Offset
+                    try:
+                        cmds.setKeyframe(target_attr)
+                        # Apply cycle infinity for Copy with Offset functionality
+                        self._apply_cycle_infinity(target_attr)
+                    except Exception:
+                        pass  # If keyframe creation fails, continue without infinity
                     
                     # Restore lock state
                     if relock:
@@ -2334,6 +2459,9 @@ class CycleMakerUI:
                             cmds.keyframe(target_attr, edit=True, relative=True, valueChange=value_offset)
                     except Exception as e2:
                         cmds.warning(f"Failed to paste keys to {target_attr}: {e2}")
+                
+                # Apply cycle infinity for Copy with Offset functionality
+                self._apply_cycle_infinity(target_attr)
                 
                 # Restore lock state
                 if relock:
