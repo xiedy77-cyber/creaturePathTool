@@ -81,17 +81,6 @@ class CycleMakerUI:
         # Auto-detection system for X-axis inversion
         self.auto_detect_x_inversion = True
         self.x_inversion_cache = {}  # Cache results: {(left_ctrl, right_ctrl): should_invert_bool}
-        
-        # Copy with Offset tab UI fields
-        self.time_offset_copy_field = None
-        self.value_offset_copy_field = None
-        self.translate_x_chk = None
-        self.translate_y_chk = None
-        self.translate_z_chk = None
-        self.rotate_x_chk = None
-        self.rotate_y_chk = None
-        self.rotate_z_chk = None
-        
         self.setup_ui()
 
     # =========================================================================
@@ -101,32 +90,13 @@ class CycleMakerUI:
     def setup_ui(self):
         if cmds.window(self.window, exists=True):
             cmds.deleteUI(self.window)
-        self.window = cmds.window(self.window, title="Cycle Maker Tool", widthHeight=(520, 450))
-        
-        # Create main tab layout
-        main_tabs = cmds.tabLayout(innerMarginWidth=5, innerMarginHeight=5)
-        
-        # TAB 1: Cycle Maker (original functionality)
-        tab1 = cmds.columnLayout(adjustableColumn=True, parent=main_tabs)
-        self.setup_cycle_maker_tab()
-        
-        # TAB 2: Copy with Offset
-        tab2 = cmds.columnLayout(adjustableColumn=True, parent=main_tabs)
-        self.setup_copy_offset_tab()
-        
-        # Set tab labels
-        cmds.tabLayout(main_tabs, edit=True, tabLabel=((tab1, 'Cycle Maker'), (tab2, 'Copy with Offset')))
-        
-        cmds.showWindow(self.window)
-    
-    def setup_cycle_maker_tab(self):
-        """Setup the original Cycle Maker functionality tab."""
+        self.window = cmds.window(self.window, title="Cycle Maker Tool", widthHeight=(500, 400))
+        cmds.columnLayout(adjustableColumn=True)
         cmds.text(label="Rig Prefix (auto-detected):")
         self.prefix_field = cmds.textField(text="tigerA_rigMain_01_:", editable=False, 
                                            backgroundColor=(0.8, 0.8, 0.8))
         cmds.separator(height=10)
         cmds.text(label="Controls (Select one side, auto-fills other side):")
-        
         # Single frame containing both lists with headers
         cmds.frameLayout(label="Left/Right Control Pairs", collapsable=False, marginHeight=5, marginWidth=5)
         cmds.columnLayout(adjustableColumn=True)
@@ -142,19 +112,21 @@ class CycleMakerUI:
         cmds.setParent('..')
         cmds.setParent('..')  # columnLayout
         cmds.setParent('..')  # frameLayout
-        
-        cmds.separator(height=10)
         cmds.rowLayout(numberOfColumns=2)
         cmds.button(label="Add Selected", command=self.add_selected_controls)
         cmds.button(label="Remove Selected", command=self.remove_selected_controls)
         cmds.setParent('..')
         cmds.separator(height=10)
         
+        # Copy direction buttons in a row (buttons adjacent)
+        # Use adjustableColumn=1 and let Maya size the columns to the buttons so
+        # the two buttons appear next to each other instead of being justified.
         # Copy buttons - equal width
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1)
         cmds.button(label="Copy Left → Right", command=self.copy_left_to_right, width=200)
         cmds.button(label="Copy Right → Left", command=self.copy_right_to_left, width=200)
         cmds.setParent('..')
+        
         cmds.separator(height=10)
         
         # Spine/centerline inversion options
@@ -165,9 +137,6 @@ class CycleMakerUI:
         # Spine controls list with Add/Remove buttons
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(250, 150))
         self.spine_controls_list = cmds.textScrollList(numberOfRows=4, allowMultiSelection=True, width=240)
-        # Initialize with default spine controls if any exist
-        for control in self.get_default_spine_controls():
-            cmds.textScrollList(self.spine_controls_list, edit=True, append=control)
         
         cmds.columnLayout(adjustableColumn=True, rowSpacing=2)
         cmds.button(label="Add Selected", command=self.add_selected_to_spine_list, width=140)
@@ -191,70 +160,7 @@ class CycleMakerUI:
         cmds.separator(height=10)
         cmds.button(label="Load Default Biped Controls", command=self.load_biped_defaults)
         cmds.button(label="Load Default Quadruped Controls", command=self.load_quad_defaults)
-    
-    def setup_copy_offset_tab(self):
-        """Setup the Copy with Offset functionality tab."""
-        cmds.text(label="Copy with Time and Value Offset", font="boldLabelFont")
-        cmds.separator(height=10)
-        
-        cmds.text(label="Select source control first, then target controls", font="smallPlainLabelFont")
-        cmds.separator(height=10)
-        
-        # Offset controls
-        cmds.frameLayout(label="Offset Settings", collapsable=False, marginHeight=6, marginWidth=6)
-        cmds.columnLayout(adjustableColumn=True, rowSpacing=4)
-        
-        cmds.rowLayout(numberOfColumns=4, columnWidth4=(120, 80, 120, 80), adjustableColumn=2)
-        cmds.text(label="Time Offset (frames):")
-        self.time_offset_copy_field = cmds.intField(value=10)
-        cmds.text(label="Value Offset:")
-        self.value_offset_copy_field = cmds.floatField(value=0.0, precision=3)
-        cmds.setParent('..')
-        
-        cmds.setParent('..')  # columnLayout
-        cmds.setParent('..')  # frameLayout
-        
-        cmds.separator(height=10)
-        
-        # Channel selection
-        cmds.frameLayout(label="Channel Selection", collapsable=False, marginHeight=6, marginWidth=6)
-        cmds.columnLayout(adjustableColumn=True, rowSpacing=4)
-        
-        cmds.text(label="Translation Channels:")
-        cmds.rowLayout(numberOfColumns=6, columnWidth6=(80, 80, 80, 80, 80, 80))
-        cmds.text(label="X:")
-        self.translate_x_chk = cmds.checkBox(label='', value=True)
-        cmds.text(label="Y:")
-        self.translate_y_chk = cmds.checkBox(label='', value=True)
-        cmds.text(label="Z:")
-        self.translate_z_chk = cmds.checkBox(label='', value=True)
-        cmds.setParent('..')
-        
-        cmds.separator(height=5)
-        cmds.text(label="Rotation Channels:")
-        cmds.rowLayout(numberOfColumns=6, columnWidth6=(80, 80, 80, 80, 80, 80))
-        cmds.text(label="X:")
-        self.rotate_x_chk = cmds.checkBox(label='', value=True)
-        cmds.text(label="Y:")
-        self.rotate_y_chk = cmds.checkBox(label='', value=True)
-        cmds.text(label="Z:")
-        self.rotate_z_chk = cmds.checkBox(label='', value=True)
-        cmds.setParent('..')
-        
-        cmds.separator(height=5)
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(150, 150))
-        cmds.button(label="Select All", command=self.select_all_channels)
-        cmds.button(label="Deselect All", command=self.deselect_all_channels)
-        cmds.setParent('..')
-        
-        cmds.setParent('..')  # columnLayout
-        cmds.setParent('..')  # frameLayout
-        
-        cmds.separator(height=15)
-        
-        # Copy button
-        cmds.button(label="Copy with Offset", command=self.copy_with_offset, height=35, 
-                   backgroundColor=(0.4, 0.6, 0.4))
+        cmds.showWindow(self.window)
 
     # =========================================================================
     # SECTION 2: CONTROL MANAGEMENT
@@ -773,11 +679,6 @@ class CycleMakerUI:
         except Exception:
             return []
     
-    def get_default_spine_controls(self):
-        """Get default spine controls based on current selection or scene."""
-        # Return empty list by default - user will manually add controls
-        return []
-    
     def add_selected_to_spine_list(self, *_):
         """Add currently selected objects to the spine controls list."""
         selected = cmds.ls(selection=True) or []
@@ -1132,8 +1033,6 @@ class CycleMakerUI:
             
         if force_cycle:
             self._apply_cycle_infinity_mel(target_curves)
-            # Ensure smooth tangent continuity for cycle boundaries
-            self._ensure_smooth_cycle_tangents_for_curves(target_curves)
         else:
             for target_curve in target_curves:
                 self._apply_infinity_from_source(source_curve, target_curve)
@@ -1514,8 +1413,6 @@ class CycleMakerUI:
         standard_attrs = ["rotateX", "translateY", "translateZ"]
 
         count = 0
-        spine_curves = []  # Collect curves for infinity application
-        
         for node in sel:
             if node not in spine_controls:
                 continue
@@ -1527,11 +1424,9 @@ class CycleMakerUI:
                         continue
                 except Exception:
                     continue
-                curve = self._anim_curve_for_attr(plug)
-                if not curve:
+                if not self._anim_curve_for_attr(plug):
                     continue
                 self._rebuild_second_half_antiphase(plug, start, mid, end)
-                spine_curves.append(curve)
                 count += 1
             # Standard cycle channels
             for attr in standard_attrs:
@@ -1541,21 +1436,13 @@ class CycleMakerUI:
                         continue
                 except Exception:
                     continue
-                curve = self._anim_curve_for_attr(plug)
-                if not curve:
+                if not self._anim_curve_for_attr(plug):
                     continue
                 self._rebuild_second_half_standard(plug, start, mid, end)
-                spine_curves.append(curve)
                 count += 1
-        
-        # Apply cycleRelative infinity (value 3) to all spine curves
-        if spine_curves:
-            self._apply_cycle_relative_infinity(spine_curves)
-            # Ensure smooth tangent continuity at cycle boundaries
-            self._ensure_smooth_cycle_tangents(spine_curves, start, end)
 
         if count == 0:
-            cmds.warning("No matching spine channels processed. Check selection, keywords, and playback range.")
+            cmds.warning("No matching spine channels processed. Check selection, spine controls list, and playback range.")
         else:
             cmds.inViewMessage(amg=f"Applied cycle/antiphase to {count} channel(s) over [{start:.0f},{end:.0f}]", pos='midCenter', fade=True)
 
@@ -1618,529 +1505,6 @@ class CycleMakerUI:
                 cmds.setAttr(plug, lock=True)
             except Exception:
                 pass
-
-    def _apply_cycle_relative_infinity(self, curves):
-        """Apply cycleRelative infinity (value 3) to animation curves for spine controls."""
-        if not curves:
-            return
-            
-        # Normalize to list
-        if isinstance(curves, str):
-            curves = [curves]
-            
-        for curve in curves:
-            if not curve or not cmds.objExists(curve):
-                continue
-                
-            # Apply cycleRelative (3) to both pre and post infinity
-            for attr_name in ("preInfinity", "postInfinity"):
-                try:
-                    locked = cmds.getAttr(f"{curve}.{attr_name}", lock=True)
-                except Exception:
-                    locked = False
-                    
-                if locked:
-                    try:
-                        cmds.setAttr(f"{curve}.{attr_name}", lock=False)
-                    except Exception:
-                        continue
-                        
-                try:
-                    # Set to cycleRelative (3) instead of cycle (2)
-                    cmds.setAttr(f"{curve}.{attr_name}", 3)
-                except Exception as e:
-                    # Fallback: attempt MEL targeted at curve
-                    try:
-                        import maya.mel as mel
-                        mel.eval(f"select -r {curve};")
-                        if attr_name == 'preInfinity':
-                            mel.eval("setInfinity -pri cycleRelative;")
-                        else:
-                            mel.eval("setInfinity -poi cycleRelative;")
-                    except Exception:
-                        pass
-                        
-                # Relock if it was locked originally
-                if locked:
-                    try:
-                        cmds.setAttr(f"{curve}.{attr_name}", lock=True)
-                    except Exception:
-                        pass
-
-    def _ensure_smooth_cycle_tangents(self, curves, start_time, end_time):
-        """Ensure smooth tangent continuity at cycle boundaries for seamless looping."""
-        if not curves:
-            return
-            
-        # Normalize to list
-        if isinstance(curves, str):
-            curves = [curves]
-            
-        for curve in curves:
-            if not curve or not cmds.objExists(curve):
-                continue
-                
-            try:
-                # Get keyframe times
-                key_times = cmds.keyframe(curve, query=True, timeChange=True) or []
-                if len(key_times) < 2:
-                    continue
-                    
-                # Find start and end keys (closest to start_time and end_time)
-                start_key = min(key_times, key=lambda t: abs(t - start_time))
-                end_key = min(key_times, key=lambda t: abs(t - end_time))
-                
-                if start_key == end_key:
-                    continue
-                
-                # Get start and end key values to check if they match (required for seamless cycling)
-                start_value = cmds.keyframe(curve, time=(start_key, start_key), query=True, valueChange=True)[0]
-                end_value = cmds.keyframe(curve, time=(end_key, end_key), query=True, valueChange=True)[0]
-                
-                # If values don't match, make them match for perfect cycling
-                if abs(start_value - end_value) > 0.001:  # Small tolerance for floating point
-                    cmds.keyframe(curve, time=(end_key, end_key), valueChange=start_value)
-                    
-                # Method 1: Try precise tangent matching for perfect continuity
-                success = self._apply_precise_tangent_matching(curve, start_key, end_key)
-                
-                # Method 2: If precise matching fails, use smooth spline tangents
-                if not success:
-                    self._apply_smooth_spline_tangents(curve, start_key, end_key)
-                    
-            except Exception as e:
-                # Final fallback: basic smooth tangents
-                try:
-                    if 'start_key' in locals() and 'end_key' in locals():
-                        cmds.keyTangent(curve, time=(start_key, start_key), 
-                                      inTangentType='spline', outTangentType='spline')
-                        cmds.keyTangent(curve, time=(end_key, end_key), 
-                                      inTangentType='spline', outTangentType='spline')
-                except Exception:
-                    pass
-    
-    def _apply_precise_tangent_matching(self, curve, start_key, end_key):
-        """Apply precise tangent matching for perfect cycle continuity."""
-        try:
-            # Get start key tangent information
-            start_out_angle = cmds.keyTangent(curve, time=(start_key, start_key), 
-                                            query=True, outAngle=True)[0]
-            start_out_weight = cmds.keyTangent(curve, time=(start_key, start_key), 
-                                             query=True, outWeight=True)[0]
-            
-            # Get end key tangent information  
-            end_out_angle = cmds.keyTangent(curve, time=(end_key, end_key), 
-                                          query=True, outAngle=True)[0]
-            end_out_weight = cmds.keyTangent(curve, time=(end_key, end_key), 
-                                           query=True, outWeight=True)[0]
-            
-            # For perfect cycling:
-            # 1. End key's in-tangent should match start key's out-tangent
-            cmds.keyTangent(curve, time=(end_key, end_key), 
-                          inAngle=start_out_angle, inWeight=start_out_weight,
-                          inTangentType='fixed')
-            
-            # 2. CRITICAL FIX: Start key's in-tangent should match end key's out-tangent 
-            # This is the ONLY change needed for the first key issue
-            cmds.keyTangent(curve, time=(start_key, start_key), 
-                          inAngle=end_out_angle, inWeight=end_out_weight,
-                          inTangentType='fixed')
-            
-            print(f"DEBUG: Fixed first key in-tangent: angle={end_out_angle}, weight={end_out_weight}")
-            
-            return True
-            
-        except Exception as e:
-            print(f"DEBUG: Precise tangent matching failed: {e}")
-            return False
-    
-    def _apply_smooth_spline_tangents(self, curve, start_key, end_key):
-        """Apply smooth spline tangents as fallback for cycle continuity."""
-        try:
-            # Use spline tangents for smooth transitions
-            cmds.keyTangent(curve, time=(start_key, start_key), 
-                          inTangentType='spline', outTangentType='spline')
-            cmds.keyTangent(curve, time=(end_key, end_key), 
-                          inTangentType='spline', outTangentType='spline')
-            
-            # For additional smoothness, ensure the tangent slopes are reasonable
-            # This helps especially with translation curves
-            self._adjust_tangent_slopes_for_cycling(curve, start_key, end_key)
-            
-        except Exception:
-            pass
-    
-    def _adjust_tangent_slopes_for_cycling(self, curve, start_key, end_key):
-        """Adjust tangent slopes to improve cycling smoothness for all channel types."""
-        try:
-            # Get key values
-            start_value = cmds.keyframe(curve, time=(start_key, start_key), 
-                                      query=True, valueChange=True)[0]
-            end_value = cmds.keyframe(curve, time=(end_key, end_key), 
-                                    query=True, valueChange=True)[0]
-            
-            # Time difference
-            time_diff = end_key - start_key
-            if time_diff <= 0:
-                return
-            
-            # Calculate average slope over the cycle
-            avg_slope = (end_value - start_value) / time_diff
-            
-            # For cycling, we want the tangents to be relatively flat at boundaries
-            # to avoid sharp transitions when the animation loops
-            cycle_tangent_angle = 0  # Flat tangent for smooth cycling
-            
-            # Apply flatter tangents at cycle boundaries
-            cmds.keyTangent(curve, time=(start_key, start_key), 
-                          outAngle=cycle_tangent_angle, outTangentType='fixed')
-            cmds.keyTangent(curve, time=(end_key, end_key), 
-                          inAngle=cycle_tangent_angle, inTangentType='fixed')
-            
-        except Exception:
-            pass
-
-    def _ensure_smooth_cycle_tangents_for_curves(self, curves):
-        """Ensure smooth tangent continuity for curves using their full time range."""
-        if not curves:
-            return
-            
-        # Normalize to list
-        if isinstance(curves, str):
-            curves = [curves]
-            
-        for curve in curves:
-            if not curve or not cmds.objExists(curve):
-                continue
-                
-            try:
-                # Get the full time range of this curve
-                key_times = cmds.keyframe(curve, query=True, timeChange=True) or []
-                if len(key_times) < 2:
-                    continue
-                    
-                start_time = min(key_times)
-                end_time = max(key_times)
-                
-                # Debug: Check what attribute this curve is connected to
-                curve_attr = self._get_curve_attribute(curve)
-                print(f"DEBUG: Processing tangents for curve {curve} connected to {curve_attr}")
-                
-                # Use the existing method with the curve's own time range
-                self._ensure_smooth_cycle_tangents([curve], start_time, end_time)
-                
-                # Special handling for translateY which often needs different treatment
-                if curve_attr and 'translateY' in curve_attr:
-                    self._apply_translateY_specific_smoothing(curve, start_time, end_time)
-                
-            except Exception as e:
-                print(f"DEBUG: Error processing curve {curve}: {e}")
-                continue
-
-
-    # =========================================================================
-    # SECTION 10: COPY WITH OFFSET FUNCTIONALITY
-    # =========================================================================
-    
-    def select_all_channels(self, *_):
-        """Select all translation and rotation channels."""
-        cmds.checkBox(self.translate_x_chk, edit=True, value=True)
-        cmds.checkBox(self.translate_y_chk, edit=True, value=True)
-        cmds.checkBox(self.translate_z_chk, edit=True, value=True)
-        cmds.checkBox(self.rotate_x_chk, edit=True, value=True)
-        cmds.checkBox(self.rotate_y_chk, edit=True, value=True)
-        cmds.checkBox(self.rotate_z_chk, edit=True, value=True)
-    
-    def deselect_all_channels(self, *_):
-        """Deselect all translation and rotation channels."""
-        cmds.checkBox(self.translate_x_chk, edit=True, value=False)
-        cmds.checkBox(self.translate_y_chk, edit=True, value=False)
-        cmds.checkBox(self.translate_z_chk, edit=True, value=False)
-        cmds.checkBox(self.rotate_x_chk, edit=True, value=False)
-        cmds.checkBox(self.rotate_y_chk, edit=True, value=False)
-        cmds.checkBox(self.rotate_z_chk, edit=True, value=False)
-    
-    def get_selected_channels(self):
-        """Get list of selected channels for copy operation."""
-        channels = []
-        if cmds.checkBox(self.translate_x_chk, query=True, value=True):
-            channels.append('translateX')
-        if cmds.checkBox(self.translate_y_chk, query=True, value=True):
-            channels.append('translateY')
-        if cmds.checkBox(self.translate_z_chk, query=True, value=True):
-            channels.append('translateZ')
-        if cmds.checkBox(self.rotate_x_chk, query=True, value=True):
-            channels.append('rotateX')
-        if cmds.checkBox(self.rotate_y_chk, query=True, value=True):
-            channels.append('rotateY')
-        if cmds.checkBox(self.rotate_z_chk, query=True, value=True):
-            channels.append('rotateZ')
-        return channels
-    
-    def copy_with_offset(self, *_):
-        """Copy animation from first selected control to subsequent controls with offset."""
-        sel = cmds.ls(selection=True)
-        if len(sel) < 2:
-            cmds.warning("Select source control first, then one or more target controls.")
-            return
-        
-        source_ctrl = sel[0]
-        target_ctrls = sel[1:]
-        
-        # Get offset values
-        time_offset = cmds.intField(self.time_offset_copy_field, query=True, value=True)
-        value_offset = cmds.floatField(self.value_offset_copy_field, query=True, value=True)
-        
-        # Get selected channels
-        channels = self.get_selected_channels()
-        if not channels:
-            cmds.warning("No channels selected. Please select at least one translation or rotation channel.")
-            return
-        
-        # Copy to each target with cumulative offset
-        for i, target_ctrl in enumerate(target_ctrls):
-            cumulative_time_offset = time_offset * (i + 1)
-            cumulative_value_offset = value_offset * (i + 1)
-            
-            self.copy_animation_with_offset(source_ctrl, target_ctrl, channels, 
-                                          cumulative_time_offset, cumulative_value_offset)
-        
-        cmds.inViewMessage(amg=f"Copied animation from {source_ctrl} to {len(target_ctrls)} targets with offset", 
-                          pos='midCenter', fade=True)
-    
-    def copy_animation_with_offset(self, source_ctrl, target_ctrl, channels, time_offset, value_offset):
-        """Copy animation from source to target with specified offsets."""
-        if not (cmds.objExists(source_ctrl) and cmds.objExists(target_ctrl)):
-            cmds.warning(f"Controls not found: {source_ctrl} or {target_ctrl}")
-            return
-        
-        for channel in channels:
-            source_attr = f"{source_ctrl}.{channel}"
-            target_attr = f"{target_ctrl}.{channel}"
-            
-            # Skip if source doesn't have this attribute or it's not animated
-            if not cmds.objExists(source_attr):
-                continue
-            
-            source_curve = self._anim_curve_for_attr(source_attr)
-            if not source_curve:
-                continue
-            
-            # Skip if target doesn't have this attribute
-            if not cmds.objExists(target_attr):
-                continue
-            
-            # Get time range from source
-            try:
-                time_range = cmds.keyframe(source_curve, query=True, timeChange=True)
-                if not time_range:
-                    continue
-                    
-                start_t = min(time_range)
-                end_t = max(time_range)
-                
-                # Copy keys from source
-                cmds.copyKey(source_attr, time=(start_t, end_t), includeUpperBound=True)
-                
-                # Handle locked attributes
-                relock = False
-                try:
-                    if cmds.getAttr(target_attr, lock=True):
-                        relock = True
-                        cmds.setAttr(target_attr, lock=False)
-                except Exception:
-                    pass
-                
-                # Paste with offsets
-                try:
-                    cmds.pasteKey(target_attr, option='replaceCompletely', 
-                                timeOffset=time_offset, valueOffset=value_offset)
-                except Exception as e:
-                    # Fallback paste
-                    try:
-                        cmds.pasteKey(target_attr, option='replaceCompletely')
-                        # Apply offsets manually if paste with offsets failed
-                        if time_offset != 0:
-                            cmds.keyframe(target_attr, edit=True, relative=True, timeChange=time_offset)
-                        if value_offset != 0:
-                            cmds.keyframe(target_attr, edit=True, relative=True, valueChange=value_offset)
-                    except Exception as e2:
-                        cmds.warning(f"Failed to paste keys to {target_attr}: {e2}")
-                
-                # Apply infinity settings and smooth tangents to target curves
-                self._apply_copy_offset_post_processing(target_attr, source_curve)
-                
-                # Restore lock state
-                if relock:
-                    try:
-                        cmds.setAttr(target_attr, lock=True)
-                    except Exception:
-                        pass
-                        
-            except Exception as e:
-                cmds.warning(f"Error copying {source_attr} to {target_attr}: {e}")
-    
-    def _apply_copy_offset_post_processing(self, target_attr, source_curve):
-        """Apply infinity settings and smooth tangents to copied curves in Copy with Offset."""
-        target_curves = self._find_target_curves(target_attr)
-        if not target_curves:
-            return
-            
-        # Copy infinity settings from source to target
-        self._copy_infinity_settings(source_curve, target_curves)
-        
-        # Apply smooth tangents for seamless cycling
-        self._ensure_smooth_cycle_tangents_for_curves(target_curves)
-    
-    def _copy_infinity_settings(self, source_curve, target_curves):
-        """Copy infinity settings from source curve to target curves."""
-        if not source_curve or not target_curves:
-            return
-            
-        try:
-            # Get source infinity settings
-            source_pre = cmds.getAttr(f"{source_curve}.preInfinity")
-            source_post = cmds.getAttr(f"{source_curve}.postInfinity")
-        except Exception:
-            # If can't read source, default to cycle infinity
-            source_pre = source_post = 2  # cycle
-            
-        # Normalize target_curves to list
-        if isinstance(target_curves, str):
-            target_curves = [target_curves]
-            
-        for target_curve in target_curves:
-            if not target_curve or not cmds.objExists(target_curve):
-                continue
-                
-            # Apply same infinity settings as source
-            for attr_name, value in [("preInfinity", source_pre), ("postInfinity", source_post)]:
-                try:
-                    locked = cmds.getAttr(f"{target_curve}.{attr_name}", lock=True)
-                except Exception:
-                    locked = False
-                    
-                if locked:
-                    try:
-                        cmds.setAttr(f"{target_curve}.{attr_name}", lock=False)
-                    except Exception:
-                        continue
-                        
-                try:
-                    cmds.setAttr(f"{target_curve}.{attr_name}", value)
-                except Exception as e:
-                    # Fallback: MEL command
-                    try:
-                        import maya.mel as mel
-                        infinity_names = {0: 'constant', 1: 'linear', 2: 'cycle', 3: 'cycleRelative', 4: 'oscillate'}
-                        infinity_name = infinity_names.get(value, 'cycle')
-                        mel.eval(f"select -r {target_curve};")
-                        if attr_name == 'preInfinity':
-                            mel.eval(f"setInfinity -pri {infinity_name};")
-                        else:
-                            mel.eval(f"setInfinity -poi {infinity_name};")
-                    except Exception:
-                        pass
-                        
-                # Relock if it was locked originally
-                if locked:
-                    try:
-                        cmds.setAttr(f"{target_curve}.{attr_name}", lock=True)
-                    except Exception:
-                        pass
-    
-    def _get_curve_attribute(self, curve):
-        """Get the attribute name that this curve is connected to."""
-        try:
-            # Get the output connections from the curve
-            connections = cmds.listConnections(f"{curve}.output", source=False, destination=True, plugs=True) or []
-            if connections:
-                return connections[0]  # Return the first connection (usually the attribute)
-        except Exception:
-            pass
-        return None
-    
-    def _apply_translateY_specific_smoothing(self, curve, start_time, end_time):
-        """Apply translateY-specific tangent smoothing which often needs special handling."""
-        try:
-            # Get all keyframe times
-            key_times = cmds.keyframe(curve, query=True, timeChange=True) or []
-            if len(key_times) < 2:
-                return
-                
-            # Find start and end keys
-            start_key = min(key_times, key=lambda t: abs(t - start_time))
-            end_key = min(key_times, key=lambda t: abs(t - end_time))
-            
-            if start_key == end_key:
-                return
-            
-            print(f"DEBUG: TranslateY smoothing - start_key: {start_key}, end_key: {end_key}")
-            
-            # Get current values
-            start_value = cmds.keyframe(curve, time=(start_key, start_key), query=True, valueChange=True)[0]
-            end_value = cmds.keyframe(curve, time=(end_key, end_key), query=True, valueChange=True)[0]
-            
-            print(f"DEBUG: TranslateY values - start: {start_value}, end: {end_value}")
-            
-            # Force end value to match start value for perfect cycling
-            if abs(start_value - end_value) > 0.001:
-                cmds.keyframe(curve, time=(end_key, end_key), valueChange=start_value)
-                print(f"DEBUG: Corrected end value from {end_value} to {start_value}")
-            
-            # Apply specific tangent handling for translateY
-            # Method 1: Try auto tangents first (Maya calculates smooth transitions)
-            try:
-                cmds.keyTangent(curve, time=(start_key, start_key), 
-                              inTangentType='auto', outTangentType='auto')
-                cmds.keyTangent(curve, time=(end_key, end_key), 
-                              inTangentType='auto', outTangentType='auto')
-                print("DEBUG: Applied auto tangents for translateY")
-            except Exception:
-                # Method 2: Use spline tangents
-                try:
-                    cmds.keyTangent(curve, time=(start_key, start_key), 
-                                  inTangentType='spline', outTangentType='spline')
-                    cmds.keyTangent(curve, time=(end_key, end_key), 
-                                  inTangentType='spline', outTangentType='spline')
-                    print("DEBUG: Applied spline tangents for translateY")
-                except Exception:
-                    # Method 3: Force flat tangents at boundaries
-                    try:
-                        cmds.keyTangent(curve, time=(start_key, start_key), 
-                                      outAngle=0, outTangentType='fixed')
-                        cmds.keyTangent(curve, time=(end_key, end_key), 
-                                      inAngle=0, inTangentType='fixed')
-                        print("DEBUG: Applied flat tangents for translateY")
-                    except Exception as e:
-                        print(f"DEBUG: All translateY tangent methods failed: {e}")
-            
-            # Additional step: ensure smooth transition across multiple keys if they exist
-            self._smooth_intermediate_keys_for_cycling(curve, start_key, end_key)
-            
-        except Exception as e:
-            print(f"DEBUG: TranslateY specific smoothing failed: {e}")
-    
-    def _smooth_intermediate_keys_for_cycling(self, curve, start_key, end_key):
-        """Smooth any intermediate keys between start and end for better cycling."""
-        try:
-            # Get all keys in the range
-            key_times = cmds.keyframe(curve, time=(start_key, end_key), query=True, timeChange=True) or []
-            
-            # If there are keys between start and end, smooth them too
-            intermediate_keys = [t for t in key_times if t != start_key and t != end_key]
-            
-            if intermediate_keys:
-                print(f"DEBUG: Smoothing {len(intermediate_keys)} intermediate keys for cycling")
-                for key_time in intermediate_keys:
-                    try:
-                        cmds.keyTangent(curve, time=(key_time, key_time), 
-                                      inTangentType='spline', outTangentType='spline')
-                    except Exception:
-                        pass
-                        
-        except Exception:
-            pass
 
 
 def launch_cycle_maker():
