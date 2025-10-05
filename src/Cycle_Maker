@@ -927,10 +927,9 @@ class CycleMakerUI:
     
     def _copy_wing_animation(self, source_ctrl, target_ctrl):
         """Copy animation between wing controls with pure mirroring (no offset)."""
-        # Get full control names with prefix
-        prefix = cmds.textField(self.prefix_field, query=True, text=True)
-        source_full = f"{prefix}{source_ctrl}" if not source_ctrl.startswith(prefix) else source_ctrl
-        target_full = f"{prefix}{target_ctrl}" if not target_ctrl.startswith(prefix) else target_ctrl
+        # Wing controls are stored with their full namespace - use them as-is
+        source_full = source_ctrl
+        target_full = target_ctrl
         
         if not (cmds.objExists(source_full) and cmds.objExists(target_full)):
             print(f"Wing control not found: {source_full} or {target_full}")
