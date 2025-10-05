@@ -70,6 +70,7 @@ class CycleMakerUI:
         self.right_list_field = None
         # Spine/centerline inversion UI handles and defaults
         self.spine_controls_list = None
+        self.wing_controls_list = None
         self.invert_y_chk = None
         self.invert_z_chk = None
         self.spine_keywords_default = [
@@ -182,6 +183,31 @@ class CycleMakerUI:
         # Action button for manual spine inversion
         cmds.separator(height=6)
         cmds.button(label="Invert Spine Channels on Selection", command=self.invert_spine_channels)
+        cmds.setParent('..')  # columnLayout
+        cmds.setParent('..')  # frameLayout
+
+        # Wing/Pure Mirror Controls
+        cmds.frameLayout(label="Wing/Pure Mirror Controls", collapsable=True, collapse=False, marginHeight=6, marginWidth=6)
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=4)
+        cmds.text(label="Controls that mirror L↔R without offset (wings, etc.):")
+        
+        # Wing controls list with Add/Remove buttons
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(250, 150))
+        self.wing_controls_list = cmds.textScrollList(numberOfRows=3, allowMultiSelection=True, width=240)
+        
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=2)
+        cmds.button(label="Add Selected", command=self.add_selected_to_wing_list, width=140)
+        cmds.button(label="Remove Selected", command=self.remove_selected_from_wing_list, width=140)
+        cmds.button(label="Clear All", command=self.clear_wing_list, width=140)
+        cmds.setParent('..')  # columnLayout
+        cmds.setParent('..')  # rowLayout
+        
+        # Mirror action buttons
+        cmds.separator(height=6)
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200))
+        cmds.button(label="Mirror Left → Right", command=self.mirror_wing_left_to_right, width=195)
+        cmds.button(label="Mirror Right → Left", command=self.mirror_wing_right_to_left, width=195)
+        cmds.setParent('..')  # rowLayout
         cmds.setParent('..')  # columnLayout
         cmds.setParent('..')  # frameLayout
 
@@ -820,6 +846,120 @@ class CycleMakerUI:
         if attr == 'rotateZ' and invert_z:
             return True
         return False
+
+    # =========================================================================
+    # SECTION 9: WING/PURE MIRROR CONTROLS MANAGEMENT
+    # =========================================================================
+    
+    def add_selected_to_wing_list(self, *_):
+        """Add currently selected objects to the wing controls list."""
+        selected = cmds.ls(selection=True) or []
+        if not selected:
+            cmds.warning("No objects selected to add to wing controls list.")
+            return
+        
+        current_items = cmds.textScrollList(self.wing_controls_list, query=True, allItems=True) or []
+        
+        added_count = 0
+        for item in selected:
+            if item not in current_items:
+                cmds.textScrollList(self.wing_controls_list, edit=True, append=item)
+                added_count += 1
+        
+        print(f"Added {added_count} controls to wing list")
+    
+    def remove_selected_from_wing_list(self, *_):
+        """Remove selected items from the wing controls list."""
+        selected_items = cmds.textScrollList(self.wing_controls_list, query=True, selectItem=True) or []
+        if not selected_items:
+            cmds.warning("No items selected in the wing controls list to remove.")
+            return
+        
+        for item in selected_items:
+            cmds.textScrollList(self.wing_controls_list, edit=True, removeItem=item)
+        
+        print(f"Removed {len(selected_items)} controls from wing list")
+    
+    def clear_wing_list(self, *_):
+        """Clear all items from the wing controls list."""
+        cmds.textScrollList(self.wing_controls_list, edit=True, removeAll=True)
+        print("Cleared all controls from wing list")
+    
+    def mirror_wing_left_to_right(self, *_):
+        """Mirror animation from left wing controls to right wing controls."""
+        self._mirror_wing_controls(left_to_right=True)
+    
+    def mirror_wing_right_to_left(self, *_):
+        """Mirror animation from right wing controls to left wing controls."""
+        self._mirror_wing_controls(left_to_right=False)
+    
+    def _mirror_wing_controls(self, left_to_right=True):
+        """Mirror wing controls with pure mirroring (no offset)."""
+        wing_controls = cmds.textScrollList(self.wing_controls_list, query=True, allItems=True) or []
+        if not wing_controls:
+            cmds.warning("No wing controls defined. Add controls to the Wing Controls list first.")
+            return
+        
+        direction = "Left → Right" if left_to_right else "Right → Left"
+        print(f"Mirroring wing controls: {direction}")
+        
+        processed = 0
+        for control in wing_controls:
+            try:
+                # Find the corresponding control on the other side
+                other_control = self.get_other_side(control, left_to_right=left_to_right)
+                if other_control and other_control != control:
+                    if left_to_right:
+                        self._copy_wing_animation(control, other_control)
+                    else:
+                        self._copy_wing_animation(other_control, control)
+                    processed += 1
+                else:
+                    print(f"Could not find matching control for {control}")
+            except Exception as e:
+                print(f"Error mirroring {control}: {e}")
+        
+        if processed > 0:
+            cmds.inViewMessage(amg=f"Mirrored {processed} wing control(s) {direction}", 
+                             pos='midCenter', fade=True)
+        else:
+            cmds.warning("No wing controls were mirrored. Check control names and pairs.")
+    
+    def _copy_wing_animation(self, source_ctrl, target_ctrl):
+        """Copy animation between wing controls with pure mirroring (no offset)."""
+        # Get full control names with prefix
+        prefix = cmds.textField(self.prefix_field, query=True, text=True)
+        source_full = f"{prefix}{source_ctrl}" if not source_ctrl.startswith(prefix) else source_ctrl
+        target_full = f"{prefix}{target_ctrl}" if not target_ctrl.startswith(prefix) else target_ctrl
+        
+        if not (cmds.objExists(source_full) and cmds.objExists(target_full)):
+            print(f"Wing control not found: {source_full} or {target_full}")
+            return
+        
+        # Get animated attributes from source
+        source_keyed_attrs = self._keyed_attributes(source_full)
+        if not source_keyed_attrs:
+            print(f"No keyed attributes found on source wing control {source_full}")
+            return
+        
+        # Copy each animated attribute
+        for attr in source_keyed_attrs:
+            source_attr = f"{source_full}.{attr}"
+            target_attr = f"{target_full}.{attr}" 
+            
+            if not self._target_has_attribute(target_full, attr):
+                continue
+            
+            # Get source curve
+            source_curve = self._anim_curve_for_attr(source_attr)
+            if not source_curve:
+                continue
+            
+            # Copy keys (no offset applied)
+            if self._copy_and_paste_keys(source_attr, target_attr, source_curve):
+                # Apply infinity settings and tangent smoothing
+                self._apply_infinity_to_target(target_attr, source_curve)
+                print(f"Mirrored wing animation: {source_attr} → {target_attr}")
 
     def _playback_cycle_range(self):
         """Return (start, end, mid) from playback options, fallback to (0,40,20)."""
@@ -1829,23 +1969,27 @@ class CycleMakerUI:
             end_in_angle = cmds.keyTangent(curve, time=(end_key, end_key), query=True, inAngle=True)[0]
             end_in_weight = cmds.keyTangent(curve, time=(end_key, end_key), query=True, inWeight=True)[0]
             
-            # STEP 3: Apply matched tangents for perfect cycling (no inversion - direct matching)
-            # Start key in-tangent should match end key out-tangent direction (for smooth pre-infinity)
-            end_out_angle = cmds.keyTangent(curve, time=(end_key, end_key), query=True, outAngle=True)[0]
-            end_out_weight = cmds.keyTangent(curve, time=(end_key, end_key), query=True, outWeight=True)[0]
+            # STEP 3: Make end key tangents exactly match start key tangents for perfect cycling
+            # Get start key's final tangent information (after spline smoothing)
+            start_in_angle = cmds.keyTangent(curve, time=(start_key, start_key), query=True, inAngle=True)[0]
+            start_in_weight = cmds.keyTangent(curve, time=(start_key, start_key), query=True, inWeight=True)[0]
+            start_out_angle = cmds.keyTangent(curve, time=(start_key, start_key), query=True, outAngle=True)[0]
+            start_out_weight = cmds.keyTangent(curve, time=(start_key, start_key), query=True, outWeight=True)[0]
             
-            cmds.keyTangent(curve, time=(start_key, start_key), 
-                          inAngle=end_out_angle, inWeight=end_out_weight,
-                          inTangentType='fixed')
-            
-            # End key in-tangent should match start key out-tangent direction (for smooth post-infinity)
+            # Apply EXACT same tangents to end key (perfect match)
             cmds.keyTangent(curve, time=(end_key, end_key), 
+                          inAngle=start_in_angle, inWeight=start_in_weight,
+                          outAngle=start_out_angle, outWeight=start_out_weight,
+                          inTangentType='fixed', outTangentType='fixed')
+            
+            # Now make start key in-tangent match end key out-tangent for cycling continuity
+            cmds.keyTangent(curve, time=(start_key, start_key), 
                           inAngle=start_out_angle, inWeight=start_out_weight,
                           inTangentType='fixed')
             
-            print(f"DEBUG: Applied matched cycle tangents:")
-            print(f"  Start in: {end_out_angle:.1f}° (matches end out)")
-            print(f"  End in: {start_out_angle:.1f}° (matches start out)")
+            print(f"DEBUG: Applied exact tangent matching:")
+            print(f"  End key in/out: {start_in_angle:.1f}°/{start_out_angle:.1f}° (matches start key)")
+            print(f"  Start key in: {start_out_angle:.1f}° (matches own out-tangent for cycling)")
             
         except Exception as e:
             print(f"DEBUG: Error in directional cycle tangents: {e}")
