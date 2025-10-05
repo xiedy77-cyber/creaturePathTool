@@ -814,7 +814,6 @@ class CycleMakerUI:
             import maya.mel as mel
             mel.eval(f"setInfinity -pri {pre_str};")
             mel.eval(f"setInfinity -poi {post_str};")
-            cmds.select(clear=True)
         except Exception:
             # Fallback to direct attribute setting
             try:
@@ -1228,6 +1227,12 @@ class CycleMakerUI:
         self._ensure_key(plug, mid, -float(v_start))
         self._ensure_key(plug, end, float(v_start))
 
+        # Apply tangent smoothing for spine antiphase cycles
+        self._smooth_spine_transitions(plug, start, mid, end, is_antiphase=True)
+        
+        # Apply cycle infinity for seamless looping
+        self._apply_cycle_infinity(plug)
+
         # Relock
         if relock:
             try:
@@ -1403,49 +1408,146 @@ class CycleMakerUI:
 
     
     def _smooth_cycle_transitions(self, target_attr):
-        """Smooth the tangents at cycle boundaries for seamless looping."""
+        """Simple but effective tangent smoothing for cycle continuity."""
         try:
             # Get all keyframes for this attribute
             keyframes = cmds.keyframe(target_attr, query=True, timeChange=True)
             if not keyframes or len(keyframes) < 2:
                 return
             
-            # Get first and last keyframe times and values
-            first_time = min(keyframes)
-            last_time = max(keyframes)
+            keyframes = sorted(keyframes)
+            first_time = keyframes[0]
+            last_time = keyframes[-1]
             
-            first_value = cmds.keyframe(target_attr, time=(first_time,), query=True, valueChange=True)[0]
-            last_value = cmds.keyframe(target_attr, time=(last_time,), query=True, valueChange=True)[0]
+            print(f"DEBUG: Smoothing cycle for {target_attr}: {len(keyframes)} keys")
             
-            # Calculate cycle length
-            cycle_length = last_time - first_time
+            # Special case: 3 keys (beginning, middle, end) should all be flat
+            if len(keyframes) == 3:
+                print(f"DEBUG: 3-key cycle detected - applying flat tangents for smooth motion")
+                for time in keyframes:
+                    cmds.keyTangent(target_attr, time=(time,), edit=True,
+                                   inTangentType='flat', outTangentType='flat')
+                return
             
-            # For smooth cycling, we need the derivative (slope) at the end to match the beginning
-            # Get the slope at the first keyframe (outgoing tangent)
-            first_out_tangent = cmds.keyTangent(target_attr, time=(first_time,), query=True, outAngle=True)[0]
-            first_out_weight = cmds.keyTangent(target_attr, time=(first_time,), query=True, outWeight=True)[0]
-            
-            # Set the last keyframe's incoming tangent to match the first keyframe's outgoing tangent
-            # This creates continuity in the derivative for smooth cycling
-            cmds.keyTangent(target_attr, time=(last_time,), inAngle=first_out_tangent, inWeight=first_out_weight)
-            
-            # Also ensure the tangent types are consistent for smooth transitions
-            cmds.keyTangent(target_attr, time=(first_time,), outTangentType='linear')
-            cmds.keyTangent(target_attr, time=(last_time,), inTangentType='linear')
-            
-            # For even smoother transitions, we can adjust intermediate tangents if there are enough keyframes
+            # For more complex cycles: ensure cycle continuity at boundaries
             if len(keyframes) >= 4:
-                # Get second and second-to-last keyframes
-                second_time = sorted(keyframes)[1]
-                second_last_time = sorted(keyframes)[-2]
+                # Get the slope from first to second keyframe
+                second_time = keyframes[1]
+                first_value = cmds.keyframe(target_attr, time=(first_time,), query=True, valueChange=True)[0]
+                second_value = cmds.keyframe(target_attr, time=(second_time,), query=True, valueChange=True)[0]
                 
-                # Apply smoothing to reduce jarring transitions
-                cmds.keyTangent(target_attr, time=(second_time,), inTangentType='spline', outTangentType='spline')
-                cmds.keyTangent(target_attr, time=(second_last_time,), inTangentType='spline', outTangentType='spline')
+                # Calculate natural slope
+                import math
+                natural_slope = (second_value - first_value) / (second_time - first_time)
+                natural_angle = math.degrees(math.atan(natural_slope))
+                
+                # Apply matching tangents at cycle boundaries for continuity
+                cmds.keyTangent(target_attr, time=(first_time,), edit=True,
+                               outTangentType='fixed', outAngle=natural_angle, outWeight=1.0)
+                cmds.keyTangent(target_attr, time=(last_time,), edit=True,
+                               inTangentType='fixed', inAngle=natural_angle, inWeight=1.0)
+                
+                # Use Maya's auto tangents for the middle keyframes - they're actually pretty good
+                middle_times = keyframes[1:-1]
+                for time in middle_times:
+                    cmds.keyTangent(target_attr, time=(time,), edit=True,
+                                   inTangentType='auto', outTangentType='auto')
+            
+            print(f"DEBUG: Applied cycle smoothing to {target_attr}")
                 
         except Exception as e:
-            # Don't warn for tangent smoothing failures - it's optional enhancement
-            pass
+            print(f"DEBUG: Tangent smoothing failed for {target_attr}: {e}")
+            # Fallback to spline
+            try:
+                cmds.keyTangent(target_attr, edit=True, inTangentType='spline', outTangentType='spline')
+                print(f"DEBUG: Applied fallback spline smoothing to {target_attr}")
+            except Exception as e2:
+                pass
+
+    def _smooth_spine_transitions(self, plug, start, mid, end, is_antiphase=False):
+        """Advanced tangent smoothing for spine cycles with special handling for antiphase."""
+        try:
+            print(f"DEBUG: Smoothing spine transitions for {plug} ({'antiphase' if is_antiphase else 'standard'} cycle)")
+            
+            # Get all keyframes in the range
+            keyframes = cmds.keyframe(plug, query=True, timeChange=True)
+            if not keyframes or len(keyframes) < 3:
+                return
+            
+            # Filter keyframes to our cycle range
+            cycle_keys = [k for k in keyframes if start <= k <= end]
+            cycle_keys = sorted(cycle_keys)
+            
+            if len(cycle_keys) < 3:
+                return
+            
+            import math
+            
+            # For antiphase cycles: smooth the transition at mid point (where phase flips)
+            if is_antiphase:
+                # Find keyframe closest to mid point
+                mid_key = min(cycle_keys, key=lambda x: abs(x - mid))
+                mid_idx = cycle_keys.index(mid_key)
+                
+                if mid_idx > 0 and mid_idx < len(cycle_keys) - 1:
+                    # Get surrounding keyframes
+                    prev_time = cycle_keys[mid_idx - 1]
+                    next_time = cycle_keys[mid_idx + 1]
+                    
+                    # Get values
+                    prev_value = cmds.keyframe(plug, time=(prev_time,), query=True, valueChange=True)[0]
+                    mid_value = cmds.keyframe(plug, time=(mid_key,), query=True, valueChange=True)[0]
+                    next_value = cmds.keyframe(plug, time=(next_time,), query=True, valueChange=True)[0]
+                    
+                    # For antiphase, we want smooth transition through zero
+                    # Calculate gentle slope that maintains the antiphase relationship
+                    pre_slope = (mid_value - prev_value) / (mid_key - prev_time)
+                    post_slope = (next_value - mid_value) / (next_time - mid_key)
+                    
+                    # Average the slopes for smoother transition
+                    avg_slope = (pre_slope + post_slope) / 2.0
+                    avg_angle = math.degrees(math.atan(avg_slope))
+                    
+                    # Apply gentle tangents at the phase transition point
+                    cmds.keyTangent(plug, time=(mid_key,), edit=True,
+                                   inTangentType='fixed', inAngle=avg_angle, inWeight=0.5,
+                                   outTangentType='fixed', outAngle=avg_angle, outWeight=0.5)
+            
+            # For both types: smooth the cycle boundary (start/end points)
+            start_key = cycle_keys[0]
+            end_key = cycle_keys[-1]
+            
+            # Get values at boundaries
+            start_value = cmds.keyframe(plug, time=(start_key,), query=True, valueChange=True)[0]
+            end_value = cmds.keyframe(plug, time=(end_key,), query=True, valueChange=True)[0]
+            
+            # Calculate natural derivative for cycle continuity
+            if len(cycle_keys) >= 3:
+                second_key = cycle_keys[1]
+                second_value = cmds.keyframe(plug, time=(second_key,), query=True, valueChange=True)[0]
+                
+                # Natural slope from start to second keyframe
+                natural_slope = (second_value - start_value) / (second_key - start_key)
+                natural_angle = math.degrees(math.atan(natural_slope))
+                
+                # Apply matching tangents at cycle boundaries for seamless looping
+                cmds.keyTangent(plug, time=(start_key,), edit=True,
+                               outTangentType='fixed', outAngle=natural_angle, outWeight=0.4)
+                cmds.keyTangent(plug, time=(end_key,), edit=True,
+                               inTangentType='fixed', inAngle=natural_angle, inWeight=0.4)
+            
+            # Apply spline smoothing to intermediate keyframes
+            for i, key_time in enumerate(cycle_keys[1:-1], 1):
+                if is_antiphase and abs(key_time - mid) < 0.1:
+                    continue  # Skip the mid key as we handled it specially
+                    
+                cmds.keyTangent(plug, time=(key_time,), edit=True,
+                               inTangentType='spline', outTangentType='spline')
+            
+            print(f"DEBUG: Applied spine tangent smoothing to {plug}")
+                
+        except Exception as e:
+            print(f"DEBUG: Spine tangent smoothing failed for {plug}: {e}")
 
     def _apply_cycle_infinity(self, target_attr):
         """Apply cycle infinity to target attribute with error handling and tangent smoothing."""
@@ -1474,7 +1576,6 @@ class CycleMakerUI:
             # Use MEL setInfinity command
             mel.eval('setInfinity -pri "cycle" -poi "cycle";')
             
-            cmds.select(clear=True)  # Clear selection
             print(f"DEBUG: Method 1 completed - MEL setInfinity executed")
             
         except Exception as e:
@@ -2321,6 +2422,12 @@ class CycleMakerUI:
             v_start = 0.0
         self._ensure_key(plug, mid, float(v_start))
         self._ensure_key(plug, end, float(v_start))
+
+        # Apply tangent smoothing for spine standard cycles
+        self._smooth_spine_transitions(plug, start, mid, end, is_antiphase=False)
+        
+        # Apply cycle infinity for seamless looping
+        self._apply_cycle_infinity(plug)
 
         # Relock
         if relock:
