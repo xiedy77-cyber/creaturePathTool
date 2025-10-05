@@ -68,8 +68,6 @@ class CycleMakerUI:
         self.prefix_field = None
         self.left_list_field = None
         self.right_list_field = None
-        self.time_offset_field = None
-        self.float_offset_field = None
         # Spine/centerline inversion UI handles and defaults
         self.spine_keywords_field = None
         self.invert_y_chk = None
@@ -99,23 +97,24 @@ class CycleMakerUI:
                                            backgroundColor=(0.8, 0.8, 0.8))
         cmds.separator(height=10)
         cmds.text(label="Controls (Select one side, auto-fills other side):")
-        # Left/Right control lists - responsive and maintain equal widths
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(1, 1), adjustableColumn=True)
+        # Single frame containing both lists with headers
+        cmds.frameLayout(label="Left/Right Control Pairs", collapsable=False, marginHeight=5, marginWidth=5)
+        cmds.columnLayout(adjustableColumn=True)
+        # Headers
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(1, 1), adjustableColumn=1)
+        cmds.text(label="Left Controls", align="center", backgroundColor=(0.3, 0.3, 0.4))
+        cmds.text(label="Right Controls", align="center", backgroundColor=(0.4, 0.3, 0.3))
+        cmds.setParent('..')
+        # Lists
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(1, 1), adjustableColumn=1)
         self.left_list_field = cmds.textScrollList(allowMultiSelection=True, height=120)
         self.right_list_field = cmds.textScrollList(allowMultiSelection=True, height=120)
         cmds.setParent('..')
+        cmds.setParent('..')  # columnLayout
+        cmds.setParent('..')  # frameLayout
         cmds.rowLayout(numberOfColumns=2)
         cmds.button(label="Add Selected", command=self.add_selected_controls)
         cmds.button(label="Remove Selected", command=self.remove_selected_controls)
-        cmds.setParent('..')
-        cmds.separator(height=10)
-        
-        # Offsets with labels
-        cmds.rowLayout(numberOfColumns=4, columnWidth4=(120, 100, 120, 100), adjustableColumn=2)
-        cmds.text(label="Time Offset (frames):")
-        self.time_offset_field = cmds.intField(value=20)
-        cmds.text(label="Float Offset (units):")
-        self.float_offset_field = cmds.intField(value=0)
         cmds.setParent('..')
         cmds.separator(height=10)
         
@@ -127,36 +126,8 @@ class CycleMakerUI:
         cmds.button(label="Copy Left → Right", command=self.copy_left_to_right, width=200)
         cmds.button(label="Copy Right → Left", command=self.copy_right_to_left, width=200)
         cmds.setParent('..')
-        # Manual infinity application button
-        cmds.rowLayout(numberOfColumns=1, adjustableColumn=1)
-        cmds.button(label="Apply Cycle Infinity To Selection", command=self.apply_cycle_infinity_for_selection)
-        cmds.setParent('..')
-        # Infinity options
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 240), adjustableColumn=2)
-        cmds.text(label="Force Cycle Infinity (pri/poi):")
-        self.force_cycle_chk = cmds.checkBox(label='', value=True)  # Default to True for cycle infinity
-        cmds.setParent('..')
-
-        # Add Ensure 2+ Keys checkbox
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 240), adjustableColumn=2)
-        cmds.text(label="Ensure 2+ keys for cycling:")
-        self.ensure_two_keys_chk = cmds.checkBox(label='', value=True)  # Default to True for ensuring 2+ keys
-        cmds.setParent('..')
         
-        # Auto-detection for X-axis inversion
         cmds.separator(height=10)
-        cmds.text(label="X-Axis Auto-Inversion (for different rig conventions):", font="boldLabelFont")
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 240), adjustableColumn=2)
-        cmds.text(label="Auto-detect X-axis inversion:")
-        self.auto_detect_x_chk = cmds.checkBox(label='', value=self.auto_detect_x_inversion, 
-                                               changeCommand=self.on_auto_detect_changed)
-        cmds.setParent('..')
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1)
-        cmds.button(label="Analyze Control Pairs", command=self.analyze_control_pairs_ui)
-        cmds.button(label="Clear Cache", command=self.clear_inversion_cache)
-        cmds.setParent('..')
-        cmds.text(label="Analyzes animation to detect if Left/Right controls need X-axis inversion.", 
-                 font="smallPlainLabelFont")
         
         # Spine/centerline inversion options
         cmds.frameLayout(label="Spine/Centerline Inversion", collapsable=True, collapse=False, marginHeight=6, marginWidth=6)
@@ -454,7 +425,7 @@ class CycleMakerUI:
             if verbose:
                 rng = (min(kt), max(kt)) if kcount else (None, None)
                 print(f"INFINITY_ADV: {c} type={cmds.nodeType(c)} keys={kcount} range={rng} ref={ref} lockedNode={locked_node} pre={pre0} post={post0}")
-            # Try direct setAttr first
+            # Try direct setAttr command first
             success_direct = False
             for attr in ('preInfinity','postInfinity'):
                 try:
@@ -581,7 +552,8 @@ class CycleMakerUI:
             cmds.warning("Select controls or animCurves to apply cycle infinity.")
             return
 
-        ensure_two_keys = cmds.checkBox(self.ensure_two_keys_chk, query=True, value=True)
+        # Ensure 2+ keys is now always enabled by default
+        ensure_two_keys = True
 
         direct_curves = [s for s in sel if cmds.objExists(s) and cmds.nodeType(s).startswith('animCurve')]
         target_nodes = [s for s in sel if s not in direct_curves]
@@ -634,11 +606,8 @@ class CycleMakerUI:
         if not source_curve or not target_curve:
             return
             
-        # Check if force cycle is enabled
-        try:
-            force_cycle = cmds.checkBox(self.force_cycle_chk, query=True, value=True)
-        except Exception:
-            force_cycle = False
+        # Force cycle infinity is now always enabled by default
+        force_cycle = True
             
         if force_cycle:
             # Force cycle using direct attr method
@@ -833,13 +802,18 @@ class CycleMakerUI:
 
     def get_key_options(self):
         """Get common key options for copy/paste operations."""
-        time_offset = cmds.intField(self.time_offset_field, query=True, value=True)
-        value_offset = cmds.intField(self.float_offset_field, query=True, value=True)
+        # Calculate time offset as half the cycle length (time range)
+        try:
+            start_time = cmds.playbackOptions(query=True, min=True)
+            end_time = cmds.playbackOptions(query=True, max=True)
+            time_offset = (end_time - start_time) / 2.0
+        except Exception:
+            time_offset = 20  # Default fallback
+        
         return {
             "option": "replaceCompletely",
             "copies": 1,
             "timeOffset": time_offset,
-            "valueOffset": value_offset,
             # Only include flags supported by pasteKey
         }
 
@@ -1011,10 +985,8 @@ class CycleMakerUI:
             print(f"DEBUG: WARNING - No curves found for {target_attr}")
             return
             
-        try:
-            force_cycle = cmds.checkBox(self.force_cycle_chk, query=True, value=True)
-        except Exception:
-            force_cycle = False
+        # Force cycle infinity is now always enabled by default
+        force_cycle = True
             
         if force_cycle:
             self._apply_cycle_infinity_mel(target_curves)
@@ -1327,55 +1299,7 @@ class CycleMakerUI:
     # SECTION 9: UI CALLBACKS & HELPERS
     # =========================================================================
 
-    def on_auto_detect_changed(self, *_):
-        """Callback when auto-detect checkbox changes."""
-        try:
-            self.auto_detect_x_inversion = cmds.checkBox(self.auto_detect_x_chk, query=True, value=True)
-            status = "enabled" if self.auto_detect_x_inversion else "disabled"
-            print(f"Auto-detection of X-axis inversion {status}")
-        except Exception:
-            pass
 
-    def analyze_control_pairs_ui(self, *_):
-        """UI callback to analyze all control pairs and display results."""
-        try:
-            results = self.analyze_all_control_pairs(verbose=True)
-            if results:
-                # Clear cache first to force fresh analysis
-                self.x_inversion_cache.clear()
-                results = self.analyze_all_control_pairs(verbose=True)
-                
-                # Show summary dialog
-                invert_pairs = [pair for pair, needs in results.items() if needs]
-                no_invert_pairs = [pair for pair, needs in results.items() if not needs]
-                
-                summary_msg = f"Analysis Results:\n\n"
-                summary_msg += f"Need X-Inversion ({len(invert_pairs)} pairs):\n"
-                for pair in invert_pairs:
-                    summary_msg += f"  • {pair}\n"
-                
-                summary_msg += f"\nNo Inversion Needed ({len(no_invert_pairs)} pairs):\n"
-                for pair in no_invert_pairs:
-                    summary_msg += f"  • {pair}\n"
-                
-                summary_msg += f"\nThese settings will be automatically applied when copying keys."
-                
-                cmds.confirmDialog(title="X-Axis Inversion Analysis", 
-                                 message=summary_msg, 
-                                 button=['OK'])
-            else:
-                cmds.warning("No control pairs to analyze. Please add left/right controls first.")
-        except Exception as e:
-            cmds.warning(f"Analysis failed: {e}")
-
-    def clear_inversion_cache(self, *_):
-        """Clear the X-axis inversion detection cache."""
-        cache_size = len(self.x_inversion_cache)
-        self.x_inversion_cache.clear()
-        print(f"Cleared X-axis inversion cache ({cache_size} entries)")
-        cmds.confirmDialog(title="Cache Cleared", 
-                         message=f"Cleared {cache_size} cached inversion analysis results.\nNext copy operation will re-analyze control pairs.", 
-                         button=['OK'])
 
     # =========================================================================
     # SECTION 2: CONTROL MANAGEMENT (continued)
