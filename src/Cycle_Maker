@@ -100,7 +100,7 @@ class CycleMakerUI:
         cmds.separator(height=10)
         cmds.text(label="Controls (Select one side, auto-fills other side):")
         # Left/Right control lists - make both columns equal width
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(250, 250), adjustableColumn=1)
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(250, 250))
         self.left_list_field = cmds.textScrollList(allowMultiSelection=True, height=120, width=250)
         self.right_list_field = cmds.textScrollList(allowMultiSelection=True, height=120, width=250)
         cmds.setParent('..')
