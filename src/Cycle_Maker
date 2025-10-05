@@ -99,8 +99,8 @@ class CycleMakerUI:
                                            backgroundColor=(0.8, 0.8, 0.8))
         cmds.separator(height=10)
         cmds.text(label="Controls (Select one side, auto-fills other side):")
-        # Left/Right control lists - now responsive and fill available width
-        cmds.rowLayout(numberOfColumns=2, adjustableColumn=True)
+        # Left/Right control lists - responsive and maintain equal widths
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(1, 1), adjustableColumn=True)
         self.left_list_field = cmds.textScrollList(allowMultiSelection=True, height=120)
         self.right_list_field = cmds.textScrollList(allowMultiSelection=True, height=120)
         cmds.setParent('..')
