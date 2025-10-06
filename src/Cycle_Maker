@@ -142,6 +142,35 @@ class CycleMakerUI:
                         backgroundColor=(0.45, 0.42, 0.38))  # Muted orange for main sections
         cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
         
+        # Bulk editing controls with clear all button
+        cmds.rowLayout(numberOfColumns=4, columnWidth4=(140, 140, 80, 240), height=22)
+        cmds.text(label="", width=140)  # Empty space above Left Controls
+        cmds.text(label="", width=140)  # Empty space above Right Controls
+        cmds.intField(value=20, width=75, annotation="Set this offset for all pairs",
+                     changeCommand=self._set_all_offsets)
+        # Bulk checkboxes for inversions
+        cmds.rowLayout(numberOfColumns=6, columnWidth6=(35, 35, 35, 35, 35, 95))
+        self.bulk_tx_chk = cmds.checkBox(label='', value=False, 
+                                        changeCommand=lambda x: self._set_all_inversions('tx', x))
+        self.bulk_ty_chk = cmds.checkBox(label='', value=False,
+                                        changeCommand=lambda x: self._set_all_inversions('ty', x))
+        self.bulk_tz_chk = cmds.checkBox(label='', value=False,
+                                        changeCommand=lambda x: self._set_all_inversions('tz', x))
+        self.bulk_rx_chk = cmds.checkBox(label='', value=False,
+                                        changeCommand=lambda x: self._set_all_inversions('rx', x))
+        self.bulk_ry_chk = cmds.checkBox(label='', value=False,
+                                        changeCommand=lambda x: self._set_all_inversions('ry', x))
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(35, 60))
+        self.bulk_rz_chk = cmds.checkBox(label='', value=False,
+                                        changeCommand=lambda x: self._set_all_inversions('rz', x))
+        cmds.button(label="X", width=30, height=18,
+                   command=self.clear_all_control_pairs,
+                   backgroundColor=(0.7, 0.5, 0.5),
+                   annotation="Clear all control pairs")
+        cmds.setParent('..')  # inner rowLayout
+        cmds.setParent('..')  # bulk checkboxes layout
+        cmds.setParent('..')  # bulk controls layout
+        
         # Headers with improved styling
         cmds.rowLayout(numberOfColumns=4, columnWidth4=(140, 140, 80, 240), height=25)
         cmds.text(label="Left Controls", align="center", font="boldLabelFont", height=22,
@@ -179,14 +208,9 @@ class CycleMakerUI:
         cmds.setParent('..')  # frameLayout
         
         cmds.separator(height=12, style="in")
-        # Add and Clear buttons for Left/Right control pairs
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1,
-                      columnAttach=[(1, 'both', 2), (2, 'both', 2)])
+        # Add button for Left/Right control pairs
         cmds.button(label="Add Selected", command=self.add_selected_controls, height=28,
                    backgroundColor=(0.42, 0.48, 0.42))  # Muted green for add actions
-        cmds.button(label="Clear All Pairs", command=self.clear_all_control_pairs, height=28,
-                   backgroundColor=(0.52, 0.42, 0.42))  # Muted red for clear
-        cmds.setParent('..')
         cmds.separator(height=12, style="in")
         
         # Direction toggle and copy button on same line with improved layout
@@ -327,7 +351,7 @@ class CycleMakerUI:
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(35, 60))
         rz_cb = cmds.checkBox(label='', value=inversion['rz'],
                               changeCommand=lambda x, idx=index, axis='rz': self._update_inversion(idx, axis, x))
-        cmds.button(label="Remove", width=55,
+        cmds.button(label="X", width=30,
                     command=lambda x, idx=index: self._remove_control_pair(idx),
                     backgroundColor=(0.7, 0.5, 0.5))  # Red for remove actions
         cmds.setParent('..')  # inner rowLayout
@@ -370,6 +394,36 @@ class CycleMakerUI:
                         backgroundColor=(0.42, 0.45, 0.48))  # Blue-gray theme
         cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
         
+        # Bulk editing controls for Copy with Offset
+        cmds.rowLayout(numberOfColumns=4, columnWidth4=(120, 60, 60, 240), height=22)
+        cmds.text(label="", width=120)  # Empty space above Object
+        cmds.intField(value=10, width=55, annotation="Set this time offset for all objects",
+                     changeCommand=self._set_all_copy_time_offsets)
+        cmds.floatField(value=0.0, width=55, precision=2, annotation="Set this value offset for all objects",
+                       changeCommand=self._set_all_copy_value_offsets)
+        # Bulk checkboxes for channels
+        cmds.rowLayout(numberOfColumns=6, columnWidth6=(35, 35, 35, 35, 35, 70))
+        self.copy_bulk_tx_chk = cmds.checkBox(label='', value=False,
+                                             changeCommand=lambda x: self._set_all_copy_channels('tx', x))
+        self.copy_bulk_ty_chk = cmds.checkBox(label='', value=False,
+                                             changeCommand=lambda x: self._set_all_copy_channels('ty', x))
+        self.copy_bulk_tz_chk = cmds.checkBox(label='', value=False,
+                                             changeCommand=lambda x: self._set_all_copy_channels('tz', x))
+        self.copy_bulk_rx_chk = cmds.checkBox(label='', value=False,
+                                             changeCommand=lambda x: self._set_all_copy_channels('rx', x))
+        self.copy_bulk_ry_chk = cmds.checkBox(label='', value=False,
+                                             changeCommand=lambda x: self._set_all_copy_channels('ry', x))
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(35, 35))
+        self.copy_bulk_rz_chk = cmds.checkBox(label='', value=False,
+                                             changeCommand=lambda x: self._set_all_copy_channels('rz', x))
+        cmds.button(label="X", width=30, height=18,
+                   command=self.clear_all_copy_objects,
+                   backgroundColor=(0.7, 0.5, 0.5),
+                   annotation="Clear all objects")
+        cmds.setParent('..')  # inner rowLayout
+        cmds.setParent('..')  # bulk checkboxes layout
+        cmds.setParent('..')  # bulk controls layout
+        
         # Headers with improved styling using nested layouts
         cmds.rowLayout(numberOfColumns=4, columnWidth4=(120, 60, 60, 240), height=25)
         cmds.text(label="Object", align="center", font="boldLabelFont", height=22,
@@ -407,14 +461,9 @@ class CycleMakerUI:
         cmds.setParent('..')  # frameLayout
         
         cmds.separator(height=12, style="in")
-        # Add and Clear buttons for object management
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1,
-                      columnAttach=[(1, 'both', 2), (2, 'both', 2)])
+        # Add button for object management  
         cmds.button(label="Add Selected Objects", command=self.add_selected_copy_objects, height=28,
                    backgroundColor=(0.42, 0.48, 0.42))  # Muted green for add actions
-        cmds.button(label="Clear All Objects", command=self.clear_all_copy_objects, height=28,
-                   backgroundColor=(0.52, 0.42, 0.42))  # Muted red for clear
-        cmds.setParent('..')
         
         cmds.separator(height=15, style="in")
         
@@ -946,6 +995,41 @@ class CycleMakerUI:
         self._refresh_control_pairs_ui()
         print("Cleared all left/right control pairs")
 
+    def _set_all_offsets(self, value):
+        """Set the same offset value for all control pairs in Cycle Maker tab."""
+        for i in range(len(self.control_offsets)):
+            self.control_offsets[i] = value
+        self._refresh_control_pairs_ui()
+        print(f"Set all offsets to {value}")
+
+    def _set_all_inversions(self, axis, value):
+        """Set the same inversion value for all control pairs for a specific axis."""
+        for i in range(len(self.control_inversions)):
+            self.control_inversions[i][axis] = value
+        self._refresh_control_pairs_ui()
+        print(f"Set all {axis} inversions to {value}")
+
+    def _set_all_copy_time_offsets(self, value):
+        """Set the same time offset value for all objects in Copy with Offset tab."""
+        for i in range(len(self.copy_offset_time_offsets)):
+            self.copy_offset_time_offsets[i] = value
+        self._refresh_copy_offset_ui()
+        print(f"Set all time offsets to {value}")
+
+    def _set_all_copy_value_offsets(self, value):
+        """Set the same value offset for all objects in Copy with Offset tab."""
+        for i in range(len(self.copy_offset_value_offsets)):
+            self.copy_offset_value_offsets[i] = value
+        self._refresh_copy_offset_ui()
+        print(f"Set all value offsets to {value}")
+
+    def _set_all_copy_channels(self, channel, value):
+        """Set the same channel setting for all objects in Copy with Offset tab."""
+        for i in range(len(self.copy_offset_channel_settings)):
+            self.copy_offset_channel_settings[i][channel] = value
+        self._refresh_copy_offset_ui()
+        print(f"Set all {channel} channels to {value}")
+
     def add_selected_copy_objects(self, *_):
         """Add selected objects to the Copy with Offset list."""
         selection = cmds.ls(selection=True)
@@ -1219,8 +1303,9 @@ class CycleMakerUI:
         cmds.setParent('..')  # rowLayout (checkboxes)
         
         # Remove button
-        cmds.button(label="Remove", width=55,
-                    command=lambda x, idx=index: self._remove_wing_pair(idx))
+        cmds.button(label="X", width=30,
+                    command=lambda x, idx=index: self._remove_wing_pair(idx),
+                    backgroundColor=(0.7, 0.5, 0.5))
         
         cmds.setParent('..')  # rowLayout (main row)
     
