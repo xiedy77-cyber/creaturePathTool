@@ -69,10 +69,11 @@ class CycleMakerUI:
         self.control_inversions = []
         # Per-control offset settings (in frames): [offset_value, ...]
         self.control_offsets = []
-        self.prefix_field = None
+
         self.left_list_field = None  # Keep for backward compatibility
         self.right_list_field = None  # Keep for backward compatibility
         self.control_pairs_scroll = None
+        self.prefix_field = None
         # Spine/centerline inversion UI handles and defaults
         self.spine_controls_list = None
         self.wing_controls_list = None  # Keep for backward compatibility
@@ -92,15 +93,16 @@ class CycleMakerUI:
         # Auto-detection system for X-axis inversion
         self.auto_detect_x_inversion = True
         
-        # Copy with Offset tab UI fields
+        # Copy with Offset tab data structures
+        self.copy_offset_objects = []  # List of selected objects in order
+        self.copy_offset_time_offsets = []  # Time offset for each object
+        self.copy_offset_value_offsets = []  # Value offset for each object  
+        self.copy_offset_channel_settings = []  # Channel settings for each object
+        self.copy_offset_scroll = None  # Scroll layout for object list
+        
+        # Legacy fields for backward compatibility (if needed)
         self.time_offset_copy_field = None
         self.value_offset_copy_field = None
-        self.translate_x_chk = None
-        self.translate_y_chk = None
-        self.translate_z_chk = None
-        self.rotate_x_chk = None
-        self.rotate_y_chk = None
-        self.rotate_z_chk = None
         
         self.setup_ui()
 
@@ -131,35 +133,44 @@ class CycleMakerUI:
     
     def setup_cycle_maker_tab(self):
         """Setup the original Cycle Maker functionality tab."""
-        cmds.text(label="Rig Prefix (auto-detected):")
-        self.prefix_field = cmds.textField(text="tigerA_rigMain_01_:", editable=False, 
-                                           backgroundColor=(0.8, 0.8, 0.8))
-        cmds.separator(height=10)
-        cmds.text(label="Controls (Select one side, auto-fills other side):")
+        # Hidden prefix field (functionality preserved, UI hidden)
+        self.prefix_field = cmds.textField(text="tigerA_rigMain_01_:", visible=False)
         
         # Advanced control pair management with per-pair inversion settings
-        cmds.frameLayout(label="Left/Right Control Pairs with Inversion Settings", collapsable=False, marginHeight=5, marginWidth=5)
-        cmds.columnLayout(adjustableColumn=True)
+        cmds.frameLayout(label="Left/Right Control Pairs with Inversion Settings", collapsable=False, 
+                        marginHeight=8, marginWidth=8, borderVisible=True,
+                        backgroundColor=(0.45, 0.42, 0.38))  # Muted orange for main sections
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
         
-        # Headers
-        cmds.rowLayout(numberOfColumns=4, columnWidth4=(140, 140, 80, 240))
-        cmds.text(label="Left Controls", align="center", backgroundColor=(0.3, 0.3, 0.4))
-        cmds.text(label="Right Controls", align="center", backgroundColor=(0.4, 0.3, 0.3))
-        cmds.text(label="Offset", align="center", backgroundColor=(0.35, 0.4, 0.35))
+        # Headers with improved styling
+        cmds.rowLayout(numberOfColumns=4, columnWidth4=(140, 140, 80, 240), height=25)
+        cmds.text(label="Left Controls", align="center", font="boldLabelFont", height=22,
+                 backgroundColor=(0.35, 0.35, 0.38))
+        cmds.text(label="Right Controls", align="center", font="boldLabelFont", height=22,
+                 backgroundColor=(0.38, 0.35, 0.35))
+        cmds.text(label="Offset", align="center", font="boldLabelFont", height=22,
+                 backgroundColor=(0.37, 0.38, 0.37))
         # Create a sub-layout for properly aligned inversion headers
-        cmds.rowLayout(numberOfColumns=6, columnWidth6=(35, 35, 35, 35, 35, 95))  # Last column wider for checkboxes + button
-        cmds.text(label="TX", align="center", backgroundColor=(0.35, 0.35, 0.35))
-        cmds.text(label="TY", align="center", backgroundColor=(0.35, 0.35, 0.35))
-        cmds.text(label="TZ", align="center", backgroundColor=(0.35, 0.35, 0.35))
-        cmds.text(label="RX", align="center", backgroundColor=(0.35, 0.35, 0.35))
-        cmds.text(label="RY", align="center", backgroundColor=(0.35, 0.35, 0.35))
-        cmds.text(label="RZ + Remove", align="center", backgroundColor=(0.35, 0.35, 0.35))  # Combined header
+        cmds.rowLayout(numberOfColumns=6, columnWidth6=(35, 35, 35, 35, 35, 95), height=20)  # Last column wider for checkboxes + button
+        cmds.text(label="TX", align="center", font="smallPlainLabelFont", height=18,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.text(label="TY", align="center", font="smallPlainLabelFont", height=18,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.text(label="TZ", align="center", font="smallPlainLabelFont", height=18,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.text(label="RX", align="center", font="smallPlainLabelFont", height=18,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.text(label="RY", align="center", font="smallPlainLabelFont", height=18,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.text(label="RZ", align="center", font="smallPlainLabelFont", height=18,
+                 backgroundColor=(0.4, 0.4, 0.4))  # RZ header
         cmds.setParent('..')  # sub-layout
         cmds.setParent('..')  # main header layout
         
-        # Scrollable area for control pairs
-        self.control_pairs_scroll = cmds.scrollLayout(height=150, childResizable=True)
-        cmds.columnLayout(adjustableColumn=True, rowSpacing=2)
+        # Scrollable area for control pairs with improved styling
+        self.control_pairs_scroll = cmds.scrollLayout(height=160, childResizable=True, 
+                                                     backgroundColor=(0.85, 0.85, 0.85))
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
         # Control pairs will be added here dynamically
         cmds.setParent('..')  # columnLayout
         cmds.setParent('..')  # scrollLayout
@@ -167,50 +178,91 @@ class CycleMakerUI:
         cmds.setParent('..')  # columnLayout
         cmds.setParent('..')  # frameLayout
         
-        cmds.separator(height=10)
-        cmds.button(label="Add Selected", command=self.add_selected_controls)
-        cmds.separator(height=10)
-        
-        # Copy buttons - equal width
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1)
-        cmds.button(label="Copy Left → Right", command=self.copy_left_to_right, width=200)
-        cmds.button(label="Copy Right → Left", command=self.copy_right_to_left, width=200)
+        cmds.separator(height=12, style="in")
+        # Add and Clear buttons for Left/Right control pairs
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1,
+                      columnAttach=[(1, 'both', 2), (2, 'both', 2)])
+        cmds.button(label="Add Selected", command=self.add_selected_controls, height=28,
+                   backgroundColor=(0.42, 0.48, 0.42))  # Muted green for add actions
+        cmds.button(label="Clear All Pairs", command=self.clear_all_control_pairs, height=28,
+                   backgroundColor=(0.52, 0.42, 0.42))  # Muted red for clear
         cmds.setParent('..')
-        cmds.separator(height=10)
+        cmds.separator(height=12, style="in")
+        
+        # Direction toggle and copy button on same line with improved layout
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(140, 200), adjustableColumn=2, 
+                      columnAttach=[(1, 'both', 5), (2, 'both', 5)])
+        self.copy_direction_toggle = cmds.checkBox(label="Left → Right", value=True, 
+                                                  changeCommand=self._update_direction_label,
+                                                  backgroundColor=(0.38, 0.45, 0.52))  # Muted blue
+        cmds.button(label="Copy Across", command=self.copy_with_direction, height=28,
+                   backgroundColor=(0.42, 0.48, 0.42))  # Muted green for primary action
+        cmds.setParent('..')
+        
+        # Auto-detection options
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
+        self.auto_detect_checkbox = cmds.checkBox(label="Auto-Detect Axis Conventions", value=True,
+                                                 annotation="Automatically analyze rig during copy operations")
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1,
+                      columnAttach=[(1, 'both', 2), (2, 'both', 2)])
+        cmds.button(label="Test Detection", command=self.test_axis_detection, height=22,
+                   backgroundColor=(0.45, 0.45, 0.45),
+                   annotation="Preview what auto-detection would find")
+        cmds.button(label="Apply Detection", command=self.apply_axis_detection, height=22,
+                   backgroundColor=(0.42, 0.48, 0.42),
+                   annotation="Apply auto-detection results to inversion checkboxes")
+        cmds.setParent('..')  # rowLayout
+        cmds.setParent('..')  # columnLayout
+        
+        cmds.separator(height=15, style="in")
         
         # Spine/centerline inversion options
-        cmds.frameLayout(label="Spine/Centerline Inversion", collapsable=True, collapse=False, marginHeight=6, marginWidth=6)
-        cmds.columnLayout(adjustableColumn=True, rowSpacing=4)
-        cmds.text(label="Spine Controls (will invert rotateY/rotateZ):")
+        cmds.frameLayout(label="Spine/Centerline Inversion", collapsable=True, collapse=False, 
+                        marginHeight=8, marginWidth=8, borderVisible=True,
+                        backgroundColor=(0.46, 0.38, 0.46))  # Muted purple for spine controls
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=5)
+        cmds.text(label="Spine Controls (will invert rotateY/rotateZ):", font="boldLabelFont")
         
-        # Spine controls list with Add/Remove buttons
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(250, 150))
-        self.spine_controls_list = cmds.textScrollList(numberOfRows=4, allowMultiSelection=True, width=240)
+        # Spine controls list with Add/Remove buttons - improved layout
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(260, 150), 
+                      columnAttach=[(1, 'both', 2), (2, 'both', 2)])
+        self.spine_controls_list = cmds.textScrollList(numberOfRows=4, allowMultiSelection=True, width=250,
+                                                      backgroundColor=(0.8, 0.8, 0.8))  # Softer gray for lists
         
-        cmds.columnLayout(adjustableColumn=True, rowSpacing=2)
-        cmds.button(label="Add Selected", command=self.add_selected_to_spine_list, width=140)
-        cmds.button(label="Remove Selected", command=self.remove_selected_from_spine_list, width=140)
-        cmds.button(label="Clear All", command=self.clear_spine_list, width=140)
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
+        cmds.button(label="Add Selected", command=self.add_selected_to_spine_list, width=140, height=26,
+                   backgroundColor=(0.42, 0.48, 0.42))  # Muted green for add
+        cmds.button(label="Remove Selected", command=self.remove_selected_from_spine_list, width=140, height=26,
+                   backgroundColor=(0.52, 0.42, 0.42))  # Muted red for remove
+        cmds.button(label="Clear All", command=self.clear_spine_list, width=140, height=26,
+                   backgroundColor=(0.48, 0.48, 0.48))  # Softer gray for clear
         cmds.setParent('..')  # columnLayout
         cmds.setParent('..')  # rowLayout
         
-        cmds.rowLayout(numberOfColumns=4, columnWidth4=(140, 60, 140, 60), adjustableColumn=2)
-        cmds.text(label="Invert rotateY:")
+        cmds.rowLayout(numberOfColumns=4, columnWidth4=(140, 60, 140, 60), adjustableColumn=2,
+                      columnAttach=[(1, 'left', 5), (3, 'left', 5)])
+        cmds.text(label="Invert rotateY:", font="plainLabelFont")
         self.invert_y_chk = cmds.checkBox(label='', value=self.spine_invert_y_default)
-        cmds.text(label="Invert rotateZ:")
+        cmds.text(label="Invert rotateZ:", font="plainLabelFont")
         self.invert_z_chk = cmds.checkBox(label='', value=self.spine_invert_z_default)
         cmds.setParent('..')  # rowLayout
         # Action button for manual spine inversion
-        cmds.separator(height=6)
-        cmds.button(label="Invert Spine Channels on Selection", command=self.invert_spine_channels)
+        cmds.separator(height=8, style="in")
+        cmds.button(label="Invert Spine Channels on Selection", command=self.invert_spine_channels, height=28,
+                   backgroundColor=(0.46, 0.38, 0.46))  # Muted purple to match spine theme
         cmds.setParent('..')  # columnLayout
         cmds.setParent('..')  # frameLayout
 
 
 
-        cmds.separator(height=10)
-        cmds.button(label="Load Default Biped Controls", command=self.load_biped_defaults)
-        cmds.button(label="Load Default Quadruped Controls", command=self.load_quad_defaults)
+        cmds.separator(height=15, style="in")
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1,
+                      columnAttach=[(1, 'both', 2), (2, 'both', 2)])
+        cmds.button(label="Load Default Biped Controls", command=self.load_biped_defaults, height=30,
+                   backgroundColor=(0.38, 0.45, 0.52))  # Muted blue for presets
+        cmds.button(label="Load Default Quadruped Controls", command=self.load_quad_defaults, height=30,
+                   backgroundColor=(0.38, 0.45, 0.52))  # Muted blue for presets
+        cmds.setParent('..')
     
     def _refresh_control_pairs_ui(self):
         """Refresh the dynamic control pairs UI."""
@@ -227,10 +279,10 @@ class CycleMakerUI:
         for i, (left_ctrl, right_ctrl) in enumerate(zip(self.left_controls, self.right_controls)):
             # Ensure we have inversion data for this pair
             while len(self.control_inversions) <= i:
-                # Default inversion settings - auto-detect later
+                # Default inversion settings - all unchecked by default
                 self.control_inversions.append({
-                    'tx': True, 'ty': False, 'tz': False,
-                    'rx': False, 'ry': True, 'rz': True
+                    'tx': False, 'ty': False, 'tz': False,
+                    'rx': False, 'ry': False, 'rz': False
                 })
             
             # Ensure we have offset data for this pair
@@ -276,7 +328,8 @@ class CycleMakerUI:
         rz_cb = cmds.checkBox(label='', value=inversion['rz'],
                               changeCommand=lambda x, idx=index, axis='rz': self._update_inversion(idx, axis, x))
         cmds.button(label="Remove", width=55,
-                    command=lambda x, idx=index: self._remove_control_pair(idx))
+                    command=lambda x, idx=index: self._remove_control_pair(idx),
+                    backgroundColor=(0.7, 0.5, 0.5))  # Red for remove actions
         cmds.setParent('..')  # inner rowLayout
         cmds.setParent('..')  # sub-layout
         
@@ -307,68 +360,67 @@ class CycleMakerUI:
             self._refresh_control_pairs_ui()
     
     def setup_copy_offset_tab(self):
-        """Setup the Copy with Offset functionality tab."""
+        """Setup the Copy with Offset functionality tab with per-object settings."""
         cmds.text(label="Copy with Time and Value Offset", font="boldLabelFont")
         cmds.separator(height=10)
         
-        cmds.text(label="Select source control first, then target controls", font="smallPlainLabelFont")
-        cmds.separator(height=10)
+        # Object list with per-object offset and channel settings
+        cmds.frameLayout(label="Objects with Individual Offset Settings", collapsable=False, 
+                        marginHeight=8, marginWidth=8, borderVisible=True,
+                        backgroundColor=(0.42, 0.45, 0.48))  # Blue-gray theme
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
         
-        # Offset controls
-        cmds.frameLayout(label="Offset Settings", collapsable=False, marginHeight=6, marginWidth=6)
-        cmds.columnLayout(adjustableColumn=True, rowSpacing=4)
+        # Headers with improved styling using nested layouts
+        cmds.rowLayout(numberOfColumns=4, columnWidth4=(120, 60, 60, 240), height=25)
+        cmds.text(label="Object", align="center", font="boldLabelFont", height=22,
+                 backgroundColor=(0.4, 0.45, 0.48))
+        cmds.text(label="Time", align="center", font="boldLabelFont", height=22,
+                 backgroundColor=(0.45, 0.4, 0.45))
+        cmds.text(label="Value", align="center", font="boldLabelFont", height=22,
+                 backgroundColor=(0.45, 0.4, 0.45))
+        # Channel headers in nested layout
+        cmds.rowLayout(numberOfColumns=6, columnWidth6=(35, 35, 35, 35, 35, 70))
+        cmds.text(label="TX", align="center", font="smallPlainLabelFont", height=22,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.text(label="TY", align="center", font="smallPlainLabelFont", height=22,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.text(label="TZ", align="center", font="smallPlainLabelFont", height=22,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.text(label="RX", align="center", font="smallPlainLabelFont", height=22,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.text(label="RY", align="center", font="smallPlainLabelFont", height=22,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.text(label="RZ", align="center", font="smallPlainLabelFont", height=22,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.setParent('..')  # channel headers layout
+        cmds.setParent('..')  # main header layout
         
-        cmds.rowLayout(numberOfColumns=4, columnWidth4=(120, 80, 120, 80), adjustableColumn=2)
-        cmds.text(label="Time Offset (frames):")
-        self.time_offset_copy_field = cmds.intField(value=10)
-        cmds.text(label="Value Offset:")
-        self.value_offset_copy_field = cmds.floatField(value=0.0, precision=3)
-        cmds.setParent('..')
+        # Scrollable area for object list
+        self.copy_offset_scroll = cmds.scrollLayout(height=160, childResizable=True, 
+                                                   backgroundColor=(0.85, 0.85, 0.85))
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
+        # Object rows will be added here dynamically
+        cmds.setParent('..')  # columnLayout
+        cmds.setParent('..')  # scrollLayout
         
         cmds.setParent('..')  # columnLayout
         cmds.setParent('..')  # frameLayout
         
-        cmds.separator(height=10)
-        
-        # Channel selection
-        cmds.frameLayout(label="Channel Selection", collapsable=False, marginHeight=6, marginWidth=6)
-        cmds.columnLayout(adjustableColumn=True, rowSpacing=4)
-        
-        cmds.text(label="Translation Channels:")
-        cmds.rowLayout(numberOfColumns=6, columnWidth6=(80, 80, 80, 80, 80, 80))
-        cmds.text(label="X:")
-        self.translate_x_chk = cmds.checkBox(label='', value=True)
-        cmds.text(label="Y:")
-        self.translate_y_chk = cmds.checkBox(label='', value=True)
-        cmds.text(label="Z:")
-        self.translate_z_chk = cmds.checkBox(label='', value=True)
+        cmds.separator(height=12, style="in")
+        # Add and Clear buttons for object management
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1,
+                      columnAttach=[(1, 'both', 2), (2, 'both', 2)])
+        cmds.button(label="Add Selected Objects", command=self.add_selected_copy_objects, height=28,
+                   backgroundColor=(0.42, 0.48, 0.42))  # Muted green for add actions
+        cmds.button(label="Clear All Objects", command=self.clear_all_copy_objects, height=28,
+                   backgroundColor=(0.52, 0.42, 0.42))  # Muted red for clear
         cmds.setParent('..')
         
-        cmds.separator(height=5)
-        cmds.text(label="Rotation Channels:")
-        cmds.rowLayout(numberOfColumns=6, columnWidth6=(80, 80, 80, 80, 80, 80))
-        cmds.text(label="X:")
-        self.rotate_x_chk = cmds.checkBox(label='', value=True)
-        cmds.text(label="Y:")
-        self.rotate_y_chk = cmds.checkBox(label='', value=True)
-        cmds.text(label="Z:")
-        self.rotate_z_chk = cmds.checkBox(label='', value=True)
-        cmds.setParent('..')
+        cmds.separator(height=15, style="in")
         
-        cmds.separator(height=5)
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(150, 150))
-        cmds.button(label="Select All", command=self.select_all_channels)
-        cmds.button(label="Deselect All", command=self.deselect_all_channels)
-        cmds.setParent('..')
-        
-        cmds.setParent('..')  # columnLayout
-        cmds.setParent('..')  # frameLayout
-        
-        cmds.separator(height=15)
-        
-        # Copy button
+        # Copy button with improved styling
         cmds.button(label="Copy with Offset", command=self.copy_with_offset, height=35, 
-                   backgroundColor=(0.4, 0.6, 0.4))
+                   backgroundColor=(0.42, 0.48, 0.42))  # Consistent muted green
 
     # =========================================================================
     # SECTION 2: CONTROL MANAGEMENT
@@ -380,7 +432,7 @@ class CycleMakerUI:
             cmds.warning("No controls selected.")
             return
             
-        # Auto-detect and update rig prefix from first selected control
+        # Auto-detect and update rig prefix from first selected control (hidden from UI)
         first_ctrl = sel[0]
         detected_prefix = self.extract_rig_prefix(first_ctrl)
         current_prefix = cmds.textField(self.prefix_field, query=True, text=True)
@@ -388,10 +440,6 @@ class CycleMakerUI:
         # Update prefix if it's different from current or if current is default
         if detected_prefix != current_prefix or current_prefix == "tigerA_rigMain_01_:":
             cmds.textField(self.prefix_field, edit=True, text=detected_prefix)
-            if detected_prefix:
-                cmds.inViewMessage(amg=f"Rig prefix auto-detected: {detected_prefix}", pos='midCenter', fade=True)
-            else:
-                cmds.inViewMessage(amg="No namespace detected in selection", pos='midCenter', fade=True)
         
         for ctrl in sel:
             ctrl_short = ctrl.split(':')[-1] if ':' in ctrl else ctrl
@@ -886,6 +934,151 @@ class CycleMakerUI:
         cmds.textScrollList(self.spine_controls_list, edit=True, removeAll=True)
         print("Cleared all controls from spine list")
 
+    def clear_all_control_pairs(self, *_):
+        """Clear all left/right control pairs."""
+        # Clear the data arrays
+        self.left_controls.clear()
+        self.right_controls.clear()
+        self.control_offsets.clear()
+        self.control_inversions.clear()
+        
+        # Refresh the UI to remove all rows
+        self._refresh_control_pairs_ui()
+        print("Cleared all left/right control pairs")
+
+    def add_selected_copy_objects(self, *_):
+        """Add selected objects to the Copy with Offset list."""
+        selection = cmds.ls(selection=True)
+        if not selection:
+            cmds.warning("Please select objects to add to the Copy with Offset list.")
+            return
+        
+        added_count = 0
+        for obj in selection:
+            if obj not in self.copy_offset_objects:
+                # Add object data
+                self.copy_offset_objects.append(obj)
+                self.copy_offset_time_offsets.append(10)  # Default time offset
+                self.copy_offset_value_offsets.append(0.0)  # Default value offset
+                
+                # Default channel settings - all enabled by default
+                self.copy_offset_channel_settings.append({
+                    'tx': True, 'ty': True, 'tz': True,
+                    'rx': True, 'ry': True, 'rz': True
+                })
+                added_count += 1
+        
+        # Refresh UI to show new objects
+        self._refresh_copy_offset_ui()
+        
+        if added_count > 0:
+            print(f"Added {added_count} objects to Copy with Offset list")
+        else:
+            cmds.warning("Selected objects are already in the list.")
+
+    def clear_all_copy_objects(self, *_):
+        """Clear all objects from the Copy with Offset list."""
+        self.copy_offset_objects.clear()
+        self.copy_offset_time_offsets.clear()
+        self.copy_offset_value_offsets.clear()
+        self.copy_offset_channel_settings.clear()
+        
+        # Refresh the UI to remove all rows
+        self._refresh_copy_offset_ui()
+        print("Cleared all Copy with Offset objects")
+
+    def _refresh_copy_offset_ui(self):
+        """Refresh the dynamic Copy with Offset objects UI."""
+        # Clear existing UI elements
+        children = cmds.scrollLayout(self.copy_offset_scroll, query=True, childArray=True) or []
+        for child in children:
+            cmds.deleteUI(child)
+        
+        # Set parent to scroll layout
+        cmds.setParent(self.copy_offset_scroll)
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
+        
+        # Create rows for each object
+        for i, obj in enumerate(self.copy_offset_objects):
+            time_offset = self.copy_offset_time_offsets[i] if i < len(self.copy_offset_time_offsets) else 10
+            value_offset = self.copy_offset_value_offsets[i] if i < len(self.copy_offset_value_offsets) else 0.0
+            channels = self.copy_offset_channel_settings[i] if i < len(self.copy_offset_channel_settings) else {
+                'tx': True, 'ty': True, 'tz': True, 'rx': True, 'ry': True, 'rz': True
+            }
+            
+            self._create_copy_offset_row(i, obj, time_offset, value_offset, channels)
+
+    def _create_copy_offset_row(self, index, obj_name, time_offset, value_offset, channels):
+        """Create a single object row with offset fields and channel checkboxes."""
+        cmds.rowLayout(numberOfColumns=4, columnWidth4=(120, 60, 60, 240))
+        
+        # Object name (read-only text)
+        display_name = obj_name.split(':')[-1] if ':' in obj_name else obj_name
+        if len(display_name) > 15:
+            display_name = display_name[:12] + "..."
+        cmds.text(label=display_name, align="left", annotation=obj_name)
+        
+        # Time offset field
+        time_field = cmds.intField(value=time_offset, width=55,
+                                  changeCommand=lambda x, idx=index: self._update_copy_time_offset(idx, x))
+        
+        # Value offset field
+        value_field = cmds.floatField(value=value_offset, width=55, precision=2,
+                                     changeCommand=lambda x, idx=index: self._update_copy_value_offset(idx, x))
+        
+        # Channel checkboxes in nested layout
+        cmds.rowLayout(numberOfColumns=6, columnWidth6=(35, 35, 35, 35, 35, 70))
+        tx_cb = cmds.checkBox(label='', value=channels['tx'], 
+                              changeCommand=lambda x, idx=index, ch='tx': self._update_copy_channel(idx, ch, x))
+        ty_cb = cmds.checkBox(label='', value=channels['ty'],
+                              changeCommand=lambda x, idx=index, ch='ty': self._update_copy_channel(idx, ch, x))
+        tz_cb = cmds.checkBox(label='', value=channels['tz'],
+                              changeCommand=lambda x, idx=index, ch='tz': self._update_copy_channel(idx, ch, x))
+        rx_cb = cmds.checkBox(label='', value=channels['rx'],
+                              changeCommand=lambda x, idx=index, ch='rx': self._update_copy_channel(idx, ch, x))
+        ry_cb = cmds.checkBox(label='', value=channels['ry'],
+                              changeCommand=lambda x, idx=index, ch='ry': self._update_copy_channel(idx, ch, x))
+        
+        # RZ checkbox and Remove button in combined column
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(35, 35))
+        rz_cb = cmds.checkBox(label='', value=channels['rz'],
+                              changeCommand=lambda x, idx=index, ch='rz': self._update_copy_channel(idx, ch, x))
+        cmds.button(label="X", width=30,
+                    command=lambda x, idx=index: self._remove_copy_object(idx),
+                    backgroundColor=(0.7, 0.5, 0.5))  # Red for remove actions
+        cmds.setParent('..')  # inner rowLayout (RZ + Remove button)
+        cmds.setParent('..')  # channel checkboxes layout
+        
+        cmds.setParent('..')  # main rowLayout
+
+    def _update_copy_time_offset(self, index, value):
+        """Update time offset for a specific copy object."""
+        if index < len(self.copy_offset_time_offsets):
+            self.copy_offset_time_offsets[index] = value
+
+    def _update_copy_value_offset(self, index, value):
+        """Update value offset for a specific copy object."""
+        if index < len(self.copy_offset_value_offsets):
+            self.copy_offset_value_offsets[index] = value
+
+    def _update_copy_channel(self, index, channel, value):
+        """Update channel setting for a specific copy object."""
+        if index < len(self.copy_offset_channel_settings):
+            self.copy_offset_channel_settings[index][channel] = value
+
+    def _remove_copy_object(self, index):
+        """Remove a copy object from the list."""
+        if 0 <= index < len(self.copy_offset_objects):
+            obj_name = self.copy_offset_objects[index]
+            self.copy_offset_objects.pop(index)
+            self.copy_offset_time_offsets.pop(index)
+            self.copy_offset_value_offsets.pop(index)
+            self.copy_offset_channel_settings.pop(index)
+            
+            # Refresh UI
+            self._refresh_copy_offset_ui()
+            print(f"Removed {obj_name} from Copy with Offset list")
+
     def _should_invert_for_spine(self, node_name, attr):
         """True if node matches spine controls list and attr is selected for inversion (rotateY/rotateZ)."""
         spine_controls = self._get_spine_controls()
@@ -988,10 +1181,10 @@ class CycleMakerUI:
         for i, (left_ctrl, right_ctrl) in enumerate(zip(self.wing_left_controls, self.wing_right_controls)):
             # Ensure we have inversion data for this pair
             while len(self.wing_control_inversions) <= i:
-                # Default wing inversion settings (TX, RY, RZ inverted)
+                # Default wing inversion settings - all unchecked by default
                 self.wing_control_inversions.append({
-                    'tx': True, 'ty': False, 'tz': False,
-                    'rx': False, 'ry': True, 'rz': True
+                    'tx': False, 'ty': False, 'tz': False,
+                    'rx': False, 'ry': False, 'rz': False
                 })
             
             inversion = self.wing_control_inversions[i]
@@ -1133,8 +1326,9 @@ class CycleMakerUI:
             
             # Copy keys (no offset applied)
             if self._copy_and_paste_keys(source_attr, target_attr, source_curve):
-                # Apply infinity settings and tangent smoothing
-                self._apply_infinity_to_target(target_attr, source_curve)
+                # Apply successful tangent smoothing and cycle infinity
+                self._smooth_cycle_transitions(target_attr)
+                self._apply_cycle_infinity(target_attr)
                 print(f"Mirrored wing animation: {source_attr} → {target_attr}")
         
 
@@ -1387,6 +1581,10 @@ class CycleMakerUI:
             self._copy_current_values(source_full, target_full, time_offset, value_offset)
             return
 
+        # First normalize source curves to fit timeline range
+        print(f"DEBUG: Normalizing source curves for {source_full}")
+        self._normalize_curves_to_timeline(source_full, source_keyed_attrs)
+
         # Copy keyed animation
         for attr in source_keyed_attrs:
             source_attr = f"{source_full}.{attr}"
@@ -1405,6 +1603,9 @@ class CycleMakerUI:
                 
                 # Set infinity to cycle for Copy with Offset functionality - ensure it's applied
                 self._apply_cycle_infinity(target_attr)
+                
+                # Timeline fitting disabled - cycle infinity handles offset curves properly
+                # Keyframes can extend beyond timeline when using cycle infinity
 
     
     def _smooth_cycle_transitions(self, target_attr):
@@ -1421,6 +1622,12 @@ class CycleMakerUI:
             
             print(f"DEBUG: Smoothing cycle for {target_attr}: {len(keyframes)} keys")
             
+            # DEBUG: Check tangent types BEFORE smoothing
+            in_tangents = cmds.keyTangent(target_attr, query=True, inTangentType=True)
+            out_tangents = cmds.keyTangent(target_attr, query=True, outTangentType=True)
+            print(f"DEBUG: Before smoothing - in tangents: {in_tangents[:min(3, len(in_tangents))]}")
+            print(f"DEBUG: Before smoothing - out tangents: {out_tangents[:min(3, len(out_tangents))]}")
+            
             # Special case: 3 keys (beginning, middle, end) should all be flat
             if len(keyframes) == 3:
                 print(f"DEBUG: 3-key cycle detected - applying flat tangents for smooth motion")
@@ -1429,31 +1636,36 @@ class CycleMakerUI:
                                    inTangentType='flat', outTangentType='flat')
                 return
             
-            # For more complex cycles: ensure cycle continuity at boundaries
-            if len(keyframes) >= 4:
-                # Get the slope from first to second keyframe
-                second_time = keyframes[1]
-                first_value = cmds.keyframe(target_attr, time=(first_time,), query=True, valueChange=True)[0]
-                second_value = cmds.keyframe(target_attr, time=(second_time,), query=True, valueChange=True)[0]
+            # Simple and effective: just preserve existing tangent quality
+            # Don't overthink it - if the original curve had good tangents, keep them
+            # Only fix the cycle boundaries for seamless looping
+            if len(keyframes) >= 3:
+                # For cycle continuity, make first and last keyframes have matching tangents
+                # But use the EXISTING tangent style, don't force new calculations
                 
-                # Calculate natural slope
-                import math
-                natural_slope = (second_value - first_value) / (second_time - first_time)
-                natural_angle = math.degrees(math.atan(natural_slope))
+                # Get the current tangent at the first keyframe's out tangent
+                first_out_tangent = cmds.keyTangent(target_attr, time=(first_time,), query=True, outTangentType=True)[0]
+                last_in_tangent = cmds.keyTangent(target_attr, time=(last_time,), query=True, inTangentType=True)[0]
                 
-                # Apply matching tangents at cycle boundaries for continuity
-                cmds.keyTangent(target_attr, time=(first_time,), edit=True,
-                               outTangentType='fixed', outAngle=natural_angle, outWeight=1.0)
-                cmds.keyTangent(target_attr, time=(last_time,), edit=True,
-                               inTangentType='fixed', inAngle=natural_angle, inWeight=1.0)
-                
-                # Use Maya's auto tangents for the middle keyframes - they're actually pretty good
-                middle_times = keyframes[1:-1]
-                for time in middle_times:
-                    cmds.keyTangent(target_attr, time=(time,), edit=True,
-                                   inTangentType='auto', outTangentType='auto')
+                # If they're already good tangent types, just ensure they match
+                if first_out_tangent in ['spline', 'linear', 'auto'] and last_in_tangent in ['spline', 'linear', 'auto']:
+                    # Keep the better tangent type for both boundaries
+                    better_tangent = 'spline' if 'spline' in [first_out_tangent, last_in_tangent] else first_out_tangent
+                    
+                    cmds.keyTangent(target_attr, time=(first_time,), edit=True, outTangentType=better_tangent)
+                    cmds.keyTangent(target_attr, time=(last_time,), edit=True, inTangentType=better_tangent)
+                    
+                    print(f"DEBUG: Simple cycle fix - using {better_tangent} tangents for boundaries")
+            
+            # Leave middle keyframes completely alone - they're fine as they are
             
             print(f"DEBUG: Applied cycle smoothing to {target_attr}")
+            
+            # DEBUG: Check final tangent types AFTER smoothing
+            final_in_tangents = cmds.keyTangent(target_attr, query=True, inTangentType=True)
+            final_out_tangents = cmds.keyTangent(target_attr, query=True, outTangentType=True)
+            print(f"DEBUG: After smoothing - in tangents: {final_in_tangents[:min(3, len(final_in_tangents))]}")
+            print(f"DEBUG: After smoothing - out tangents: {final_out_tangents[:min(3, len(final_out_tangents))]}")
                 
         except Exception as e:
             print(f"DEBUG: Tangent smoothing failed for {target_attr}: {e}")
@@ -1463,6 +1675,7 @@ class CycleMakerUI:
                 print(f"DEBUG: Applied fallback spline smoothing to {target_attr}")
             except Exception as e2:
                 pass
+
 
     def _smooth_spine_transitions(self, plug, start, mid, end, is_antiphase=False):
         """Advanced tangent smoothing for spine cycles with special handling for antiphase."""
@@ -1550,13 +1763,10 @@ class CycleMakerUI:
             print(f"DEBUG: Spine tangent smoothing failed for {plug}: {e}")
 
     def _apply_cycle_infinity(self, target_attr):
-        """Apply cycle infinity to target attribute with error handling and tangent smoothing."""
+        """Apply cycle infinity to target attribute with reliable fallback methods."""
         print(f"DEBUG: Attempting to set cycle infinity on: {target_attr}")
         
-        # First smooth the cycle transitions for seamless looping
-        self._smooth_cycle_transitions(target_attr)
-        
-        # Get the animation curve first
+        # Get the animation curve first (smoothing is done separately now)
         anim_curve = self._anim_curve_for_attr(target_attr)
         if not anim_curve:
             print(f"DEBUG: No animation curve found for {target_attr}")
@@ -1702,8 +1912,9 @@ class CycleMakerUI:
                 cmds.scaleKey(target_attr, valueScale=-1.0)
 
             
-        # Apply infinity settings
-        self._apply_infinity_to_target(target_attr, source_curve)
+        # Apply successful tangent smoothing and cycle infinity
+        self._smooth_cycle_transitions(target_attr)
+        self._apply_cycle_infinity(target_attr)
     
     def _copy_and_paste_keys_with_offset(self, source_attr, target_attr, source_curve, time_offset=0, value_offset=0.0):
         """Copy keys from source to target attribute with time and value offsets."""
@@ -1752,6 +1963,152 @@ class CycleMakerUI:
         except Exception as e:
             cmds.warning(f"pasteKey with offset failed on {target_attr}: {e}")
             return False
+            
+    def _fit_curve_to_timeline(self, target_attr, time_offset):
+        """Fit offset curves to timeline range by wrapping overhanging keys while preserving timing."""
+        try:
+            # Get current timeline range
+            start_time = cmds.playbackOptions(query=True, minTime=True)
+            end_time = cmds.playbackOptions(query=True, maxTime=True)
+            timeline_duration = end_time - start_time
+            
+            # Get current keyframes on the curve
+            keyframes = cmds.keyframe(target_attr, query=True, timeChange=True)
+            if not keyframes:
+                return
+                
+            keyframes = sorted(keyframes)
+            first_key_time = keyframes[0]
+            last_key_time = keyframes[-1]
+            
+            print(f"DEBUG: Timeline fitting - range [{start_time}, {end_time}], keys [{first_key_time}, {last_key_time}]")
+            
+            # Check if keys extend beyond timeline
+            keys_before_start = [t for t in keyframes if t < start_time]
+            keys_after_end = [t for t in keyframes if t > end_time]
+            
+            if keys_before_start or keys_after_end:
+                print(f"DEBUG: Found keys outside timeline - before: {len(keys_before_start)}, after: {len(keys_after_end)}")
+                
+                # Simple approach: wrap overhanging keys to the opposite end of timeline
+                # This preserves the original keyframe timing and values
+                
+                if keys_after_end:
+                    # Move keys that are past the end to the beginning
+                    for key_time in keys_after_end:
+                        # Get the key's value and tangent info
+                        key_value = cmds.keyframe(target_attr, time=(key_time,), query=True, valueChange=True)[0]
+                        in_tangent = cmds.keyTangent(target_attr, time=(key_time,), query=True, inTangentType=True)[0]
+                        out_tangent = cmds.keyTangent(target_attr, time=(key_time,), query=True, outTangentType=True)[0]
+                        
+                        # Calculate where this key should go at the beginning
+                        # Wrap it around to the start of timeline
+                        offset_from_end = key_time - end_time
+                        new_time = start_time + offset_from_end
+                        
+                        # Only move if the new position doesn't conflict with existing keys
+                        if new_time <= end_time:
+                            # Remove the old key
+                            cmds.cutKey(target_attr, time=(key_time, key_time))
+                            
+                            # Set new key at wrapped position
+                            cmds.setKeyframe(target_attr, time=new_time, value=key_value)
+                            
+                            # Restore tangent types
+                            cmds.keyTangent(target_attr, time=(new_time,), edit=True,
+                                          inTangentType=in_tangent, outTangentType=out_tangent)
+                            
+                            print(f"DEBUG: Wrapped key from {key_time:.1f} to {new_time:.1f}")
+                
+                if keys_before_start:
+                    # Move keys that are before the start to the end
+                    for key_time in keys_before_start:
+                        # Get the key's value and tangent info
+                        key_value = cmds.keyframe(target_attr, time=(key_time,), query=True, valueChange=True)[0]
+                        in_tangent = cmds.keyTangent(target_attr, time=(key_time,), query=True, inTangentType=True)[0]
+                        out_tangent = cmds.keyTangent(target_attr, time=(key_time,), query=True, outTangentType=True)[0]
+                        
+                        # Calculate where this key should go at the end
+                        offset_from_start = start_time - key_time
+                        new_time = end_time - offset_from_start
+                        
+                        # Only move if the new position doesn't conflict with existing keys
+                        if new_time >= start_time:
+                            # Remove the old key
+                            cmds.cutKey(target_attr, time=(key_time, key_time))
+                            
+                            # Set new key at wrapped position
+                            cmds.setKeyframe(target_attr, time=new_time, value=key_value)
+                            
+                            # Restore tangent types
+                            cmds.keyTangent(target_attr, time=(new_time,), edit=True,
+                                          inTangentType=in_tangent, outTangentType=out_tangent)
+                            
+                            print(f"DEBUG: Wrapped key from {key_time:.1f} to {new_time:.1f}")
+                
+                print(f"DEBUG: Timeline fitting completed - keys now wrapped within [{start_time}, {end_time}]")
+                
+                # Ensure cycle infinity is maintained after the reorganization
+                self._apply_cycle_infinity(target_attr)
+                
+        except Exception as e:
+            print(f"DEBUG: Timeline fitting failed for {target_attr}: {e}")
+            
+    def _normalize_curves_to_timeline(self, control_name, keyed_attrs):
+        """Shift source curves to start at timeline beginning without changing shape."""
+        try:
+            # Get current timeline range
+            start_time = cmds.playbackOptions(query=True, minTime=True)
+            end_time = cmds.playbackOptions(query=True, maxTime=True)
+            
+            for attr in keyed_attrs:
+                source_attr = f"{control_name}.{attr}"
+                
+                # Get current keyframes
+                keyframes = cmds.keyframe(source_attr, query=True, timeChange=True)
+                if not keyframes or len(keyframes) < 2:
+                    continue
+                    
+                keyframes = sorted(keyframes)
+                first_key_time = keyframes[0]
+                last_key_time = keyframes[-1]
+                
+                # Check if ANY keys are outside the timeline range (not just first key)
+                keys_outside = any(k < start_time or k > end_time for k in keyframes)
+                
+                if keys_outside or abs(first_key_time - start_time) > 0.001:
+                    print(f"DEBUG: Keys outside timeline detected for {source_attr}")
+                    print(f"DEBUG: Current range [{first_key_time:.1f}, {last_key_time:.1f}], timeline [{start_time}, {end_time}]")
+                    
+                    # Simple shift: move all keyframes so first key is at timeline start
+                    time_shift = start_time - first_key_time
+                    
+                    print(f"DEBUG: Applying time shift {time_shift:.1f} to {source_attr}")
+                    
+                    # Apply time shift - this preserves exact curve shape and timing
+                    cmds.keyframe(source_attr, edit=True, timeChange=time_shift, relative=True)
+                    
+                    # Verify the shift worked
+                    new_keyframes = cmds.keyframe(source_attr, query=True, timeChange=True)
+                    if new_keyframes:
+                        new_first = min(new_keyframes)
+                        new_last = max(new_keyframes)
+                        print(f"DEBUG: After shift - curve spans [{new_first:.1f}, {new_last:.1f}]")
+                        
+                        # Double-check if there are still keys outside timeline
+                        still_outside = any(k < start_time - 0.001 or k > end_time + 0.001 for k in new_keyframes)
+                        if still_outside:
+                            print(f"WARNING: Some keys still outside timeline after shift!")
+                        else:
+                            print(f"SUCCESS: All keys now within timeline range")
+                    
+                    # Ensure cycle infinity is maintained
+                    self._apply_cycle_infinity(source_attr)
+                else:
+                    print(f"DEBUG: {source_attr} already within timeline range - no shift needed")
+                    
+        except Exception as e:
+            print(f"DEBUG: Curve normalization failed for {control_name}: {e}")
         
     def _handle_attribute_lock(self, attr, unlock=False, lock=False):
         """Handle locking/unlocking of attributes. Returns True if attribute was locked."""
@@ -1982,6 +2339,10 @@ class CycleMakerUI:
             self._copy_current_values_with_inversion(source_full, target_full, inversion_settings)
             return
 
+        # First normalize source curves to fit timeline range
+        print(f"DEBUG: Normalizing source curves for {source_full}")
+        self._normalize_curves_to_timeline(source_full, source_keyed_attrs)
+
         # Copy keyed animation
         for attr in source_keyed_attrs:
             source_attr = f"{source_full}.{attr}"
@@ -1996,12 +2357,17 @@ class CycleMakerUI:
 
             # Copy keys with offset - ensure complete replacement
             if self._copy_and_paste_keys_with_offset(source_attr, target_attr, source_curve, time_offset, 0.0):
-                # Apply per-control inversion settings
-                if self._should_invert_attribute(attr, inversion_settings):
+                # Apply per-control inversion settings with auto-detection
+                if self._should_invert_attribute(attr, inversion_settings, source_full, target_full):
                     cmds.scaleKey(target_attr, valueScale=-1.0)
                 
-                # Apply infinity settings
-                self._apply_infinity_to_target(target_attr, source_curve)
+                # Apply successful tangent smoothing and cycle infinity
+                print(f"DEBUG L→R: Applying tangent smoothing to {target_attr}")
+                self._smooth_cycle_transitions(target_attr)
+                self._apply_cycle_infinity(target_attr)
+                
+                # Timeline fitting disabled - cycle infinity handles offset curves properly
+                # Keyframes can extend beyond timeline when using cycle infinity
     
     def _copy_current_values_with_inversion(self, source_ctrl, target_ctrl, inversion_settings):
         """Copy current channel values with per-control inversion settings."""
@@ -2021,9 +2387,9 @@ class CycleMakerUI:
                     # Get current value from source
                     current_value = cmds.getAttr(source_attr)
                     
-                    # Apply inversion if set for this attribute
+                    # Apply inversion if set for this attribute or auto-detected
                     final_value = current_value
-                    if self._should_invert_attribute(attr, inversion_settings):
+                    if self._should_invert_attribute(attr, inversion_settings, source_ctrl, target_ctrl):
                         final_value = -final_value
                     
                     # Handle locked attributes
@@ -2039,18 +2405,268 @@ class CycleMakerUI:
                 except Exception as e:
                     cmds.warning(f"Failed to copy current value for {attr}: {e}")
     
-    def _should_invert_attribute(self, attr, inversion_settings):
-        """Check if an attribute should be inverted based on per-control settings."""
-        if not inversion_settings:
-            return False
-            
+    def _should_invert_attribute(self, attr, inversion_settings, source_ctrl=None, target_ctrl=None):
+        """Check if an attribute should be inverted based on per-control settings or auto-detection."""
         attr_map = {
             'translateX': 'tx', 'translateY': 'ty', 'translateZ': 'tz',
             'rotateX': 'rx', 'rotateY': 'ry', 'rotateZ': 'rz'
         }
         
         inversion_key = attr_map.get(attr)
-        return inversion_settings.get(inversion_key, False)
+        if not inversion_key:
+            return False
+            
+        # If manual settings exist, use them (they override auto-detection)
+        if inversion_settings and inversion_key in inversion_settings:
+            return inversion_settings.get(inversion_key, False)
+        
+        # Auto-detect axis convention if enabled and controls are provided
+        if (source_ctrl and target_ctrl and 
+            hasattr(self, 'auto_detect_checkbox') and 
+            cmds.checkBox(self.auto_detect_checkbox, query=True, value=True)):
+            return self._auto_detect_inversion_needed(source_ctrl, target_ctrl, attr)
+            
+        return False
+    
+    def _auto_detect_inversion_needed(self, source_ctrl, target_ctrl, attr):
+        """
+        Automatically detect if inversion is needed by analyzing existing animation data.
+        
+        Args:
+            source_ctrl: Source control name (with full prefix)
+            target_ctrl: Target control name (with full prefix) 
+            attr: Attribute name (translateX, rotateY, etc.)
+            
+        Returns:
+            bool: True if inversion is needed, False otherwise
+        """
+        try:
+            # Get animation curves for both controls
+            source_attr = f"{source_ctrl}.{attr}"
+            target_attr = f"{target_ctrl}.{attr}"
+            
+            source_curve = self._anim_curve_for_attr(source_attr)
+            target_curve = self._anim_curve_for_attr(target_attr)
+            
+            # If either control has no animation, use anatomical defaults
+            if not source_curve or not target_curve:
+                return self._get_anatomical_inversion_default(attr, source_ctrl, target_ctrl)
+            
+            # Analyze correlation between source and target animation
+            correlation = self._analyze_animation_correlation(source_curve, target_curve)
+            
+            # Positive correlation = same direction movement (need inversion)
+            # Negative correlation = opposite direction movement (no inversion needed)
+            inversion_needed = correlation > 0.1  # Small threshold to handle noise
+            
+            # Visual feedback for user
+            source_short = source_ctrl.split(':')[-1] if ':' in source_ctrl else source_ctrl
+            target_short = target_ctrl.split(':')[-1] if ':' in target_ctrl else target_ctrl
+            action = "INVERTING" if inversion_needed else "SAME DIR"
+            print(f"🤖 Auto-detect {attr}: {source_short}→{target_short} ({action}, correlation={correlation:.2f})")
+            return inversion_needed
+            
+        except Exception as e:
+            print(f"Auto-detection failed for {attr}: {e}")
+            return self._get_anatomical_inversion_default(attr, source_ctrl, target_ctrl)
+    
+    def _analyze_animation_correlation(self, source_curve, target_curve):
+        """
+        Analyze the correlation between two animation curves to determine movement relationship.
+        
+        Returns:
+            float: Correlation coefficient (-1 to 1)
+                   +1 = perfect positive correlation (same direction)
+                   -1 = perfect negative correlation (opposite direction)
+                    0 = no correlation
+        """
+        try:
+            # Get time range from both curves
+            source_times = self._get_curve_key_times(source_curve)
+            target_times = self._get_curve_key_times(target_curve)
+            
+            if not source_times or not target_times:
+                return 0.0
+            
+            # Sample both curves at regular intervals
+            min_time = max(min(source_times), min(target_times))
+            max_time = min(max(source_times), max(target_times))
+            
+            if max_time <= min_time:
+                return 0.0
+            
+            # Sample at 10 points across the overlap
+            sample_count = min(10, len(source_times), len(target_times))
+            sample_times = [min_time + i * (max_time - min_time) / (sample_count - 1) 
+                           for i in range(sample_count)]
+            
+            source_values = []
+            target_values = []
+            
+            for time in sample_times:
+                source_val = cmds.keyframe(source_curve, query=True, time=(time, time), valueChange=True)
+                target_val = cmds.keyframe(target_curve, query=True, time=(time, time), valueChange=True)
+                
+                if source_val and target_val:
+                    source_values.append(source_val[0])
+                    target_values.append(target_val[0])
+            
+            if len(source_values) < 3:  # Need at least 3 points for meaningful correlation
+                return 0.0
+            
+            # Calculate Pearson correlation coefficient
+            return self._calculate_correlation(source_values, target_values)
+            
+        except Exception as e:
+            print(f"Correlation analysis failed: {e}")
+            return 0.0
+    
+    def _calculate_correlation(self, x_values, y_values):
+        """Calculate Pearson correlation coefficient between two value lists."""
+        if len(x_values) != len(y_values) or len(x_values) < 2:
+            return 0.0
+        
+        n = len(x_values)
+        sum_x = sum(x_values)
+        sum_y = sum(y_values)
+        sum_xy = sum(x * y for x, y in zip(x_values, y_values))
+        sum_x2 = sum(x * x for x in x_values)
+        sum_y2 = sum(y * y for y in y_values)
+        
+        numerator = n * sum_xy - sum_x * sum_y
+        denominator = ((n * sum_x2 - sum_x * sum_x) * (n * sum_y2 - sum_y * sum_y)) ** 0.5
+        
+        if denominator == 0:
+            return 0.0
+        
+        return numerator / denominator
+    
+    def _get_curve_key_times(self, curve):
+        """Get all key times from an animation curve."""
+        try:
+            return cmds.keyframe(curve, query=True, timeChange=True) or []
+        except:
+            return []
+    
+    def _get_anatomical_inversion_default(self, attr, source_ctrl, target_ctrl):
+        """
+        Get anatomical default inversion based on attribute and control names.
+        This is used as fallback when no animation data is available.
+        """
+        # Conservative defaults - no inversions by default
+        # Let animation analysis or manual settings drive inversion decisions
+        anatomical_defaults = {
+            'translateX': False,  # No inversion by default
+            'translateY': False,  # No inversion by default
+            'translateZ': False,  # No inversion by default
+            'rotateX': False,     # No inversion by default
+            'rotateY': False,     # No inversion by default
+            'rotateZ': False      # No inversion by default
+        }
+        
+        # Check for special control types that might have different conventions
+        source_lower = source_ctrl.lower()
+        
+        # Eyes often have different conventions
+        if any(eye_part in source_lower for eye_part in ['eye', 'look', 'gaze']):
+            if attr in ['rotateX', 'rotateY']:
+                return False  # Eye controls often don't need rotation mirroring
+        
+        # Fingers and toes often follow anatomical patterns
+        if any(digit in source_lower for digit in ['finger', 'thumb', 'toe']):
+            if attr == 'rotateY':
+                return False  # Finger curling usually same direction
+        
+        return anatomical_defaults.get(attr, False)
+    
+    def test_axis_detection(self, *_):
+        """Test the auto-detection system on current control pairs and display results."""
+        if not self.left_controls or not self.right_controls:
+            cmds.warning("Please add some left/right control pairs first.")
+            return
+        
+        prefix = cmds.textField(self.prefix_field, query=True, text=True)
+        results = []
+        
+        # Test first few pairs
+        test_count = min(3, len(self.left_controls), len(self.right_controls))
+        
+        for i in range(test_count):
+            left_ctrl = self.left_controls[i]
+            right_ctrl = self.right_controls[i]
+            
+            left_full = f"{prefix}{left_ctrl}" if not left_ctrl.startswith(prefix) else left_ctrl
+            right_full = f"{prefix}{right_ctrl}" if not right_ctrl.startswith(prefix) else right_ctrl
+            
+            if not (cmds.objExists(left_full) and cmds.objExists(right_full)):
+                continue
+            
+            results.append(f"\n=== {left_ctrl} → {right_ctrl} ===")
+            
+            # Test each attribute
+            for attr in ['translateX', 'translateY', 'translateZ', 'rotateX', 'rotateY', 'rotateZ']:
+                invert_needed = self._auto_detect_inversion_needed(left_full, right_full, attr)
+                status = "INVERT" if invert_needed else "SAME"
+                results.append(f"  {attr}: {status}")
+        
+        if results:
+            message = ("Auto-Detection Preview Results:\n" +
+                      "(These are NOT applied yet - use 'Apply Detection' to apply them)" + 
+                      "".join(results))
+            cmds.confirmDialog(title="Axis Convention Detection Preview", 
+                             message=message, 
+                             button=['OK'])
+        else:
+            cmds.warning("No valid control pairs found for testing.")
+    
+    def apply_axis_detection(self, *_):
+        """Apply auto-detection results to the inversion checkboxes for all control pairs."""
+        if not self.left_controls or not self.right_controls:
+            cmds.warning("Please add some left/right control pairs first.")
+            return
+        
+        prefix = cmds.textField(self.prefix_field, query=True, text=True)
+        applied_count = 0
+        
+        # Apply detection to all pairs
+        pair_count = min(len(self.left_controls), len(self.right_controls))
+        
+        for i in range(pair_count):
+            left_ctrl = self.left_controls[i]
+            right_ctrl = self.right_controls[i]
+            
+            left_full = f"{prefix}{left_ctrl}" if not left_ctrl.startswith(prefix) else left_ctrl
+            right_full = f"{prefix}{right_ctrl}" if not right_ctrl.startswith(prefix) else right_ctrl
+            
+            if not (cmds.objExists(left_full) and cmds.objExists(right_full)):
+                continue
+            
+            # Detect inversion for each attribute and update the data
+            attr_map = {
+                'translateX': 'tx', 'translateY': 'ty', 'translateZ': 'tz',
+                'rotateX': 'rx', 'rotateY': 'ry', 'rotateZ': 'rz'
+            }
+            
+            for attr, key in attr_map.items():
+                invert_needed = self._auto_detect_inversion_needed(left_full, right_full, attr)
+                if i < len(self.control_inversions):
+                    self.control_inversions[i][key] = invert_needed
+            
+            applied_count += 1
+        
+        # Refresh the UI to show updated checkboxes
+        self._refresh_control_pairs_ui()
+        
+        if applied_count > 0:
+            cmds.confirmDialog(title="Auto-Detection Applied", 
+                             message=f"Applied auto-detection to {applied_count} control pairs.\n\n"
+                                   f"The inversion checkboxes have been updated based on\n"
+                                   f"analysis of existing animation data.\n\n"
+                                   f"Manual changes to checkboxes will override these settings.",
+                             button=['OK'])
+            print(f"🤖 Applied auto-detection to {applied_count} control pairs")
+        else:
+            cmds.warning("No valid control pairs found for auto-detection.")
 
     # =========================================================================
     # SECTION 4: X-AXIS INVERSION DETECTION SYSTEM
@@ -2478,41 +3094,65 @@ class CycleMakerUI:
     
        
     def copy_with_offset(self, *_):
-        """Copy animation from first selected control to subsequent controls with offset."""
-        sel = cmds.ls(selection=True)
-        if len(sel) < 2:
-            cmds.warning("Select source control first, then one or more target controls.")
+        """Copy animation using per-object offset settings from the object list."""
+        if not self.copy_offset_objects:
+            cmds.warning("No objects in the Copy with Offset list. Please add objects first.")
             return
         
-        source_ctrl = sel[0]
-        target_ctrls = sel[1:]
-        
-        # Get offset values
-        time_offset = cmds.intField(self.time_offset_copy_field, query=True, value=True)
-        value_offset = cmds.floatField(self.value_offset_copy_field, query=True, value=True)
-        
-        # Get selected channels
-        channels = self.get_selected_channels()
-        if not channels:
-            cmds.warning("No channels selected. Please select at least one translation or rotation channel.")
+        if len(self.copy_offset_objects) < 2:
+            cmds.warning("Need at least 2 objects in the list. First object is the source.")
             return
         
-        # Copy to each target with cumulative offset
-        for i, target_ctrl in enumerate(target_ctrls):
-            cumulative_time_offset = time_offset * (i + 1)
-            cumulative_value_offset = value_offset * (i + 1)
+        source_ctrl = self.copy_offset_objects[0]
+        copied_count = 0
+        
+        # Copy from source to each subsequent object with individual settings
+        for i in range(1, len(self.copy_offset_objects)):
+            target_ctrl = self.copy_offset_objects[i]
+            time_offset = self.copy_offset_time_offsets[i] if i < len(self.copy_offset_time_offsets) else 10
+            value_offset = self.copy_offset_value_offsets[i] if i < len(self.copy_offset_value_offsets) else 0.0
+            channel_settings = self.copy_offset_channel_settings[i] if i < len(self.copy_offset_channel_settings) else {}
             
-            self.copy_animation_with_offset(source_ctrl, target_ctrl, channels, 
-                                          cumulative_time_offset, cumulative_value_offset)
+            # Get enabled channels for this object
+            channels = self._get_enabled_channels_for_object(channel_settings)
+            if not channels:
+                print(f"Skipping {target_ctrl} - no channels enabled")
+                continue
+            
+            # Copy with individual object settings
+            success = self.copy_animation_with_offset(source_ctrl, target_ctrl, channels, 
+                                                    time_offset, value_offset)
+            if success:
+                copied_count += 1
         
-        cmds.inViewMessage(amg=f"Copied animation from {source_ctrl} to {len(target_ctrls)} targets with offset", 
-                          pos='midCenter', fade=True)
+        if copied_count > 0:
+            cmds.inViewMessage(amg=f"Copied animation from {source_ctrl} to {copied_count} objects with individual offsets", 
+                              pos='midCenter', fade=True)
+            print(f"🎯 Copy with Offset completed: {source_ctrl} → {copied_count} objects")
+        else:
+            cmds.warning("No animation was copied. Check object names and channel settings.")
+
+    def _get_enabled_channels_for_object(self, channel_settings):
+        """Get list of enabled channels for a specific object."""
+        channels = []
+        channel_map = {
+            'tx': 'translateX', 'ty': 'translateY', 'tz': 'translateZ',
+            'rx': 'rotateX', 'ry': 'rotateY', 'rz': 'rotateZ'
+        }
+        
+        for key, maya_channel in channel_map.items():
+            if channel_settings.get(key, True):  # Default to True if not specified
+                channels.append(maya_channel)
+        
+        return channels
     
     def copy_animation_with_offset(self, source_ctrl, target_ctrl, channels, time_offset, value_offset):
         """Copy animation from source to target with specified offsets."""
         if not (cmds.objExists(source_ctrl) and cmds.objExists(target_ctrl)):
-            cmds.warning(f"Controls not found: {source_ctrl} or {target_ctrl}")
-            return
+            print(f"Controls not found: {source_ctrl} or {target_ctrl}")
+            return False
+        
+        copied_channels = 0
         
         for channel in channels:
             source_attr = f"{source_ctrl}.{channel}"
@@ -2567,7 +3207,8 @@ class CycleMakerUI:
                     except Exception as e2:
                         cmds.warning(f"Failed to paste keys to {target_attr}: {e2}")
                 
-                # Apply cycle infinity for Copy with Offset functionality
+                # Apply successful tangent smoothing and cycle infinity for Copy with Offset
+                self._smooth_cycle_transitions(target_attr)
                 self._apply_cycle_infinity(target_attr)
                 
                 # Restore lock state
@@ -2576,9 +3217,13 @@ class CycleMakerUI:
                         cmds.setAttr(target_attr, lock=True)
                     except Exception:
                         pass
+                
+                copied_channels += 1
                         
             except Exception as e:
-                cmds.warning(f"Error copying {source_attr} to {target_attr}: {e}")
+                print(f"Error copying {source_attr} to {target_attr}: {e}")
+        
+        return copied_channels > 0
 
     # =========================================================================
     # SECTION 11: TANGENT SMOOTHING FOR CYCLE CONTINUITY
@@ -2669,6 +3314,28 @@ class CycleMakerUI:
             
         except Exception as e:
             print(f"DEBUG: Error in directional cycle tangents: {e}")
+    
+    def _update_direction_label(self, *_):
+        """Update the direction label when checkbox changes."""
+        try:
+            is_left_to_right = cmds.checkBox(self.copy_direction_toggle, query=True, value=True)
+            if is_left_to_right:
+                cmds.checkBox(self.copy_direction_toggle, edit=True, label="Left → Right")
+            else:
+                cmds.checkBox(self.copy_direction_toggle, edit=True, label="Right → Left")
+        except:
+            pass
+            
+    def copy_with_direction(self, *_):
+        """Copy animation in the direction specified by the checkbox."""
+        try:
+            is_left_to_right = cmds.checkBox(self.copy_direction_toggle, query=True, value=True)
+            if is_left_to_right:
+                self.copy_left_to_right()
+            else:
+                self.copy_right_to_left()
+        except Exception as e:
+            cmds.warning(f"Copy with direction failed: {e}")
 
 # =========================================================================
 # MAIN EXECUTION
