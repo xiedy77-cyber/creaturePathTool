@@ -148,7 +148,7 @@ class CycleMakerUI:
         cmds.rowLayout(numberOfColumns=3, columnWidth3=(135, 50, 135))
         cmds.text(label="Left Control", align="center", font="boldLabelFont", height=22)
         cmds.button(label="⇄", width=50, height=22,
-                   backgroundColor=(0.4, 0.5, 0.4),
+                   backgroundColor=(0.6, 0.4, 0.6),
                    annotation="Swap all left/right control pairs",
                    command=self._swap_all_control_pairs)
         cmds.text(label="Right Control", align="center", font="boldLabelFont", height=22)
@@ -320,17 +320,19 @@ class CycleMakerUI:
         """Create a single control pair row with offset field and inversion checkboxes."""
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(320, 120))
         
-        # Controls section with proper spacing
-        cmds.rowLayout(numberOfColumns=3, columnWidth3=(135, 50, 135))
+        # Controls section with proper spacing and margins
+        cmds.rowLayout(numberOfColumns=5, columnWidth5=(120, 15, 50, 15, 120))
         # Left control (read-only text)
         cmds.text(label=left_ctrl, align="center")
+        cmds.text(label="", width=15)  # Spacer
         
         # Direction swap button (shows bidirectional swap and allows swapping)
         cmds.button(label="⇄", width=50, height=20,
-                   backgroundColor=(0.4, 0.5, 0.4),
+                   backgroundColor=(0.6, 0.4, 0.6),
                    annotation="Click to swap left/right controls",
                    command=lambda x, idx=index: self._swap_control_pair(idx))
         
+        cmds.text(label="", width=15)  # Spacer
         # Right control (read-only text)  
         cmds.text(label=right_ctrl, align="center")
         cmds.setParent('..')  # controls sub-layout
