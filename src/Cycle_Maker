@@ -144,10 +144,13 @@ class CycleMakerUI:
         
         # Headers row - use nested layouts to avoid columnWidth9 limitation
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(320, 140), height=25)
-        # First part: Controls
+        # First part: Controls with swap all button
         cmds.rowLayout(numberOfColumns=3, columnWidth3=(140, 40, 140))
         cmds.text(label="Left Control", align="center", font="boldLabelFont", height=22)
-        cmds.text(label="", align="center", font="boldLabelFont", height=22)
+        cmds.button(label="⇄", width=40, height=22,
+                   backgroundColor=(0.4, 0.5, 0.4),
+                   annotation="Swap all left/right control pairs",
+                   command=self._swap_all_control_pairs)
         cmds.text(label="Right Control", align="center", font="boldLabelFont", height=22)
         cmds.setParent('..')  # controls header
         # Second part: Offset and checkboxes
@@ -157,7 +160,7 @@ class CycleMakerUI:
         cmds.text(label="TY", align="center", font="smallPlainLabelFont", height=22)
         cmds.text(label="TZ", align="center", font="smallPlainLabelFont", height=22)
         cmds.text(label="RX", align="center", font="smallPlainLabelFont", height=22)
-        cmds.text(label="RY    RZ    X", align="center", font="smallPlainLabelFont", height=22)
+        cmds.text(label="RY    RZ", align="center", font="smallPlainLabelFont", height=22)
         cmds.setParent('..')  # offset/checkboxes header
         cmds.setParent('..')  # main headers row
         
@@ -186,7 +189,7 @@ class CycleMakerUI:
                                         changeCommand=lambda x: self._set_all_inversions('ry', x))
         self.bulk_rz_chk = cmds.checkBox(label='', value=False,
                                         changeCommand=lambda x: self._set_all_inversions('rz', x))
-        cmds.button(label="X", width=20, height=18,
+        cmds.button(label="✕", width=20, height=18,
                    command=self.clear_all_control_pairs,
                    backgroundColor=(0.7, 0.5, 0.5),
                    annotation="Clear all control pairs")
@@ -320,16 +323,16 @@ class CycleMakerUI:
         # Controls section
         cmds.rowLayout(numberOfColumns=3, columnWidth3=(140, 40, 140))
         # Left control (read-only text)
-        cmds.text(label=left_ctrl, align="left")
+        cmds.text(label=left_ctrl, align="center")
         
-        # Direction swap button (shows copy direction and allows swapping)
-        cmds.button(label="→", width=40, height=20,
+        # Direction swap button (shows bidirectional swap and allows swapping)
+        cmds.button(label="⇄", width=40, height=20,
                    backgroundColor=(0.4, 0.5, 0.4),
                    annotation="Click to swap left/right controls",
                    command=lambda x, idx=index: self._swap_control_pair(idx))
         
         # Right control (read-only text)  
-        cmds.text(label=right_ctrl, align="left")
+        cmds.text(label=right_ctrl, align="center")
         cmds.setParent('..')  # controls sub-layout
         
         # Offset and inversion checkboxes using nested structure
@@ -350,7 +353,7 @@ class CycleMakerUI:
                               changeCommand=lambda x, idx=index, axis='ry': self._update_inversion(idx, axis, x))
         rz_cb = cmds.checkBox(label='', value=inversion['rz'],
                               changeCommand=lambda x, idx=index, axis='rz': self._update_inversion(idx, axis, x))
-        cmds.button(label="X", width=20,
+        cmds.button(label="✕", width=20,
                     command=lambda x, idx=index: self._remove_control_pair(idx),
                     backgroundColor=(0.7, 0.5, 0.5))  # Red for remove actions
         cmds.setParent('..')  # RY RZ X inner rowLayout  
@@ -379,6 +382,20 @@ class CycleMakerUI:
             self._refresh_control_pairs_ui()
             
             print(f"Swapped controls: '{self.right_controls[index]}' <-> '{self.left_controls[index]}'")
+    
+    def _swap_all_control_pairs(self, *_):
+        """Swap all left and right control pairs"""
+        if len(self.left_controls) == len(self.right_controls):
+            # Swap all pairs
+            for i in range(len(self.left_controls)):
+                self.left_controls[i], self.right_controls[i] = self.right_controls[i], self.left_controls[i]
+            
+            # Refresh the UI to show all swapped controls
+            self._refresh_control_pairs_ui()
+            
+            print(f"Swapped all {len(self.left_controls)} control pairs")
+        else:
+            cmds.warning("Cannot swap all pairs - left and right lists have different lengths")
     
     def _remove_control_pair(self, index):
         """Remove a control pair and refresh the UI."""
