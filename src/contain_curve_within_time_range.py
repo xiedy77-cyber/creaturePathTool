@@ -81,28 +81,25 @@ def contain_curve_within_time_range():
         cmds.warning(f"Failed to copy keyframes: {e}")
         return
     
-    # Set current time to start of range for pasting
+    # Set current time to start of range for pasting (like your MEL: currentTime 1000)
     cmds.currentTime(start_time)
+    print(f"Set current time to {start_time}")
     
-    # Calculate the time offset for pasting
-    # We want the first copied key (at end_time) to paste at start_time
-    first_copy_time = min(keys_to_copy)
-    time_offset = start_time - first_copy_time
-    
-    print(f"Pasting with time offset: {time_offset} (first key {first_copy_time} -> {start_time})")
-    
-    # Paste the keyframes with merge option and time offset
+    # Paste the keyframes at current time with merge option (like your MEL)
+    # This mimics: pasteKey -time 1000 -float 1000 -option merge -copies 1 -connect 0 -timeOffset 0 -floatOffset 0 -valueOffset 0 -selectPasted 1
     try:
         cmds.pasteKey(
-            time=(start_time, start_time),
-            option="merge",  # Use merge to combine with existing keys
+            time=(start_time, start_time),  # Maya expects tuple format
+            float=(start_time, start_time),  # Maya expects tuple format
+            option="merge",
             copies=1,
             connect=False,
-            timeOffset=time_offset,
+            timeOffset=0,  # No time offset, let Maya handle the positioning
             floatOffset=0,
-            valueOffset=0
+            valueOffset=0,
+            selectPasted=True
         )
-        print("Pasted keyframes")
+        print(f"Pasted keyframes at current time {start_time}")
     except Exception as e:
         cmds.warning(f"Failed to paste keyframes: {e}")
         return
