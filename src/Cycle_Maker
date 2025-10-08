@@ -3009,20 +3009,21 @@ class CycleMakerUI:
         """Save current settings to a JSON preset file."""
         try:
             file_path = cmds.fileDialog2(
-                caption="Save Presets",
+                caption="Save Cycle Maker Presets",
                 fileMode=0,  # Save file
-                fileFilter="JSON Files (*.json);;All Files (*.*)",
-                defaultExtension="json"
+                fileFilter="JSON Files (*.json)",
+                dialogStyle=2
             )
-            print(f"File dialog result: {file_path}")
         except Exception as e:
             print(f"File dialog error: {e}")
             cmds.warning(f"File dialog failed: {e}")
             return
         
         if not file_path:
+            print("No file selected - user canceled")
             return
             
+        print(f"Selected file: {file_path[0]}")
         preset_data = {
             'cycle_maker': {
                 'left_controls': self.left_controls[:],
@@ -3049,11 +3050,17 @@ class CycleMakerUI:
 
     def load_presets(self, *_):
         """Load settings from a JSON preset file."""
-        file_path = cmds.fileDialog2(
-            caption="Load Presets",
-            fileMode=1,  # Load file
-            fileFilter="JSON Files (*.json);;All Files (*.*)"
-        )
+        try:
+            file_path = cmds.fileDialog2(
+                caption="Load Cycle Maker Presets",
+                fileMode=1,  # Load file
+                fileFilter="JSON Files (*.json)",
+                dialogStyle=2
+            )
+        except Exception as e:
+            print(f"File dialog error: {e}")
+            cmds.warning(f"File dialog failed: {e}")
+            return
         
         if not file_path:
             return
