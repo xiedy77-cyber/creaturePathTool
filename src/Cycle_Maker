@@ -3007,12 +3007,18 @@ class CycleMakerUI:
 
     def save_presets(self, *_):
         """Save current settings to a JSON preset file."""
-        file_path = cmds.fileDialog2(
-            caption="Save Presets",
-            fileMode=0,  # Save file
-            fileFilter="JSON Files (*.json);;All Files (*.*)",
-            defaultExtension="json"
-        )
+        try:
+            file_path = cmds.fileDialog2(
+                caption="Save Presets",
+                fileMode=0,  # Save file
+                fileFilter="JSON Files (*.json);;All Files (*.*)",
+                defaultExtension="json"
+            )
+            print(f"File dialog result: {file_path}")
+        except Exception as e:
+            print(f"File dialog error: {e}")
+            cmds.warning(f"File dialog failed: {e}")
+            return
         
         if not file_path:
             return
