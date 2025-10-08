@@ -142,33 +142,35 @@ class CycleMakerUI:
                         backgroundColor=(0.45, 0.42, 0.38))  # Muted orange for main sections
         cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
         
-        # Headers row - single line with all elements
-        cmds.rowLayout(numberOfColumns=9, columnWidth9=(140, 40, 140, 60, 20, 20, 20, 20, 60), height=25)
-        cmds.text(label="Left Control", align="center", font="boldLabelFont", height=22,
-                 backgroundColor=(0.35, 0.35, 0.38))
-        cmds.text(label="", align="center", font="boldLabelFont", height=22,
-                 backgroundColor=(0.4, 0.4, 0.4))
-        cmds.text(label="Right Control", align="center", font="boldLabelFont", height=22,
-                 backgroundColor=(0.38, 0.35, 0.35))
-        cmds.text(label="Offset", align="center", font="boldLabelFont", height=22,
-                 backgroundColor=(0.37, 0.38, 0.37))
-        cmds.text(label="TX", align="center", font="smallPlainLabelFont", height=22,
-                 backgroundColor=(0.4, 0.4, 0.4))
-        cmds.text(label="TY", align="center", font="smallPlainLabelFont", height=22,
-                 backgroundColor=(0.4, 0.4, 0.4))
-        cmds.text(label="TZ", align="center", font="smallPlainLabelFont", height=22,
-                 backgroundColor=(0.4, 0.4, 0.4))
-        cmds.text(label="RX", align="center", font="smallPlainLabelFont", height=22,
-                 backgroundColor=(0.4, 0.4, 0.4))
-        cmds.text(label="RY RZ X", align="center", font="smallPlainLabelFont", height=22,
-                 backgroundColor=(0.4, 0.4, 0.4))
-        cmds.setParent('..')  # headers row
+        # Headers row - use nested layouts to avoid columnWidth9 limitation
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(320, 140), height=25)
+        # First part: Controls
+        cmds.rowLayout(numberOfColumns=3, columnWidth3=(140, 40, 140))
+        cmds.text(label="Left Control", align="center", font="boldLabelFont", height=22)
+        cmds.text(label="", align="center", font="boldLabelFont", height=22)
+        cmds.text(label="Right Control", align="center", font="boldLabelFont", height=22)
+        cmds.setParent('..')  # controls header
+        # Second part: Offset and checkboxes
+        cmds.rowLayout(numberOfColumns=6, columnWidth6=(60, 20, 20, 20, 20, 60))
+        cmds.text(label="Offset", align="center", font="boldLabelFont", height=22)
+        cmds.text(label="TX", align="center", font="smallPlainLabelFont", height=22)
+        cmds.text(label="TY", align="center", font="smallPlainLabelFont", height=22)
+        cmds.text(label="TZ", align="center", font="smallPlainLabelFont", height=22)
+        cmds.text(label="RX", align="center", font="smallPlainLabelFont", height=22)
+        cmds.text(label="RY    RZ    X", align="center", font="smallPlainLabelFont", height=22)
+        cmds.setParent('..')  # offset/checkboxes header
+        cmds.setParent('..')  # main headers row
         
-        # Bulk editing controls positioned below headers - single line
-        cmds.rowLayout(numberOfColumns=9, columnWidth9=(140, 40, 140, 60, 20, 20, 20, 20, 60), height=22)
+        # Bulk editing controls positioned below headers - nested structure
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(320, 140), height=22)
+        # First part: Empty space above controls
+        cmds.rowLayout(numberOfColumns=3, columnWidth3=(140, 40, 140))
         cmds.text(label="", width=140)  # Empty space above left control
         cmds.text(label="", width=40)   # Empty space above swap button
         cmds.text(label="", width=140)  # Empty space above right control
+        cmds.setParent('..')  # controls spacer
+        # Second part: Offset and bulk checkboxes
+        cmds.rowLayout(numberOfColumns=6, columnWidth6=(60, 20, 20, 20, 20, 60))
         cmds.intField(value=20, width=55, annotation="Set this offset for all pairs",
                      changeCommand=self._set_all_offsets)
         self.bulk_tx_chk = cmds.checkBox(label='', value=False, 
@@ -188,7 +190,8 @@ class CycleMakerUI:
                    command=self.clear_all_control_pairs,
                    backgroundColor=(0.7, 0.5, 0.5),
                    annotation="Clear all control pairs")
-        cmds.setParent('..')  # inner rowLayout
+        cmds.setParent('..')  # RY RZ X layout
+        cmds.setParent('..')  # offset/checkboxes layout
         cmds.setParent('..')  # bulk controls row
         
         # Scrollable area for control pairs with improved styling
@@ -329,8 +332,8 @@ class CycleMakerUI:
         cmds.text(label=right_ctrl, align="left")
         cmds.setParent('..')  # controls sub-layout
         
-        # Offset and inversion checkboxes on same line
-        cmds.rowLayout(numberOfColumns=7, columnWidth7=(60, 20, 20, 20, 20, 20, 40))
+        # Offset and inversion checkboxes using nested structure
+        cmds.rowLayout(numberOfColumns=6, columnWidth6=(60, 20, 20, 20, 20, 60))
         offset_field = cmds.intField(value=offset, width=55,
                                    changeCommand=lambda x, idx=index: self._update_offset(idx, x))
         tx_cb = cmds.checkBox(label='', value=inversion['tx'], 
@@ -341,16 +344,16 @@ class CycleMakerUI:
                               changeCommand=lambda x, idx=index, axis='tz': self._update_inversion(idx, axis, x))
         rx_cb = cmds.checkBox(label='', value=inversion['rx'],
                               changeCommand=lambda x, idx=index, axis='rx': self._update_inversion(idx, axis, x))
+        # RY, RZ checkbox and Remove button in combined column
+        cmds.rowLayout(numberOfColumns=3, columnWidth3=(20, 20, 20))
         ry_cb = cmds.checkBox(label='', value=inversion['ry'],
                               changeCommand=lambda x, idx=index, axis='ry': self._update_inversion(idx, axis, x))
-        # RZ checkbox and Remove button in combined column
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(20, 20))
         rz_cb = cmds.checkBox(label='', value=inversion['rz'],
                               changeCommand=lambda x, idx=index, axis='rz': self._update_inversion(idx, axis, x))
-        cmds.button(label="X", width=30,
+        cmds.button(label="X", width=20,
                     command=lambda x, idx=index: self._remove_control_pair(idx),
                     backgroundColor=(0.7, 0.5, 0.5))  # Red for remove actions
-        cmds.setParent('..')  # RZ+X inner rowLayout  
+        cmds.setParent('..')  # RY RZ X inner rowLayout  
         cmds.setParent('..')  # offset and checkboxes row
         cmds.setParent('..')  # main row
     
