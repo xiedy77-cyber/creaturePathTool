@@ -3029,13 +3029,16 @@ class CycleMakerUI:
                 'left_controls': self.left_controls[:],
                 'right_controls': self.right_controls[:],
                 'control_offsets': self.control_offsets[:],
-                'control_inversions': self.control_inversions[:]
+                'control_inversions': self.control_inversions[:],
+                'spine_controls': self._get_spine_controls(),
+                'spine_invert_y': cmds.checkBox(self.invert_y_chk, query=True, value=True),
+                'spine_invert_z': cmds.checkBox(self.invert_z_chk, query=True, value=True)
             },
             'copy_with_offset': {
-                'objects': self.copy_objects[:],
-                'time_offsets': self.copy_time_offsets[:],
-                'value_offsets': self.copy_value_offsets[:],
-                'channel_settings': self.copy_channel_settings[:]
+                'objects': self.copy_offset_objects[:],
+                'time_offsets': self.copy_offset_time_offsets[:],
+                'value_offsets': self.copy_offset_value_offsets[:],
+                'channel_settings': self.copy_offset_channel_settings[:]
             }
         }
         
@@ -3078,15 +3081,28 @@ class CycleMakerUI:
                 self.control_offsets = cm_data.get('control_offsets', [])
                 self.control_inversions = cm_data.get('control_inversions', [])
                 self._refresh_control_pairs_ui()
+                
+                # Load spine controls
+                spine_controls = cm_data.get('spine_controls', [])
+                if spine_controls:
+                    cmds.textScrollList(self.spine_controls_list, edit=True, removeAll=True)
+                    for control in spine_controls:
+                        cmds.textScrollList(self.spine_controls_list, edit=True, append=control)
+                
+                # Load spine invert settings
+                spine_invert_y = cm_data.get('spine_invert_y', True)
+                spine_invert_z = cm_data.get('spine_invert_z', True)
+                cmds.checkBox(self.invert_y_chk, edit=True, value=spine_invert_y)
+                cmds.checkBox(self.invert_z_chk, edit=True, value=spine_invert_z)
             
             # Load Copy with Offset data
             if 'copy_with_offset' in preset_data:
                 co_data = preset_data['copy_with_offset']
-                self.copy_objects = co_data.get('objects', [])
-                self.copy_time_offsets = co_data.get('time_offsets', [])
-                self.copy_value_offsets = co_data.get('value_offsets', [])
-                self.copy_channel_settings = co_data.get('channel_settings', [])
-                self._refresh_copy_objects_ui()
+                self.copy_offset_objects = co_data.get('objects', [])
+                self.copy_offset_time_offsets = co_data.get('time_offsets', [])
+                self.copy_offset_value_offsets = co_data.get('value_offsets', [])
+                self.copy_offset_channel_settings = co_data.get('channel_settings', [])
+                self._refresh_copy_offset_ui()
             
             print(f"Loaded presets from: {file_path[0]}")
             cmds.confirmDialog(title="Success", message=f"Presets loaded successfully!\n{file_path[0]}", button="OK")

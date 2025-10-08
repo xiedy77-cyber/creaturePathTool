@@ -1,0 +1,45 @@
+{
+    "cycle_maker": {
+        "left_controls": [
+            "IKArm_L",
+            "IKLeg_L"
+        ],
+        "right_controls": [
+            "IKArm_R",
+            "IKLeg_R"
+        ],
+        "control_offsets": [
+            20,
+            20
+        ],
+        "control_inversions": [
+            {
+                "tx": false,
+                "ty": false,
+                "tz": false,
+                "rx": false,
+                "ry": false,
+                "rz": false
+            },
+            {
+                "tx": true,
+                "ty": false,
+                "tz": false,
+                "rx": true,
+                "ry": false,
+                "rz": false
+            }
+        ],
+        "spine_controls": [
+            "the_tyrant_rig:IKSplineN5_M"
+        ],
+        "spine_invert_y": true,
+        "spine_invert_z": true
+    },
+    "copy_with_offset": {
+        "objects": [],
+        "time_offsets": [],
+        "value_offsets": [],
+        "channel_settings": []
+    }
+}
