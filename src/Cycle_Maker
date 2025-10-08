@@ -144,10 +144,10 @@ class CycleMakerUI:
         
         # Headers row - use nested layouts to avoid columnWidth9 limitation
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(320, 140), height=25)
-        # First part: Controls with swap all button
-        cmds.rowLayout(numberOfColumns=3, columnWidth3=(140, 40, 140))
+        # First part: Controls with swap all button - matching individual row layout
+        cmds.rowLayout(numberOfColumns=3, columnWidth3=(135, 50, 135))
         cmds.text(label="Left Control", align="center", font="boldLabelFont", height=22)
-        cmds.button(label="⇄", width=40, height=22,
+        cmds.button(label="⇄", width=50, height=22,
                    backgroundColor=(0.4, 0.5, 0.4),
                    annotation="Swap all left/right control pairs",
                    command=self._swap_all_control_pairs)
@@ -166,30 +166,30 @@ class CycleMakerUI:
         
         # Bulk editing controls positioned below headers - nested structure
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(320, 140), height=22)
-        # First part: Empty space above controls
-        cmds.rowLayout(numberOfColumns=3, columnWidth3=(140, 40, 140))
-        cmds.text(label="", width=140)  # Empty space above left control
-        cmds.text(label="", width=40)   # Empty space above swap button
-        cmds.text(label="", width=140)  # Empty space above right control
+        # First part: Empty space above controls - matching individual row layout
+        cmds.rowLayout(numberOfColumns=3, columnWidth3=(135, 50, 135))
+        cmds.text(label="", width=135)  # Empty space above left control
+        cmds.text(label="", width=50)   # Empty space above swap button
+        cmds.text(label="", width=135)  # Empty space above right control
         cmds.setParent('..')  # controls spacer
         # Second part: Offset and bulk checkboxes
         cmds.rowLayout(numberOfColumns=6, columnWidth6=(60, 20, 20, 20, 20, 60))
-        cmds.intField(value=20, width=55, annotation="Set this offset for all pairs",
+        cmds.intField(value=20, width=55, height=20, annotation="Set this offset for all pairs",
                      changeCommand=self._set_all_offsets)
-        self.bulk_tx_chk = cmds.checkBox(label='', value=False, 
+        self.bulk_tx_chk = cmds.checkBox(label='', value=False, height=20,
                                         changeCommand=lambda x: self._set_all_inversions('tx', x))
-        self.bulk_ty_chk = cmds.checkBox(label='', value=False,
+        self.bulk_ty_chk = cmds.checkBox(label='', value=False, height=20,
                                         changeCommand=lambda x: self._set_all_inversions('ty', x))
-        self.bulk_tz_chk = cmds.checkBox(label='', value=False,
+        self.bulk_tz_chk = cmds.checkBox(label='', value=False, height=20,
                                         changeCommand=lambda x: self._set_all_inversions('tz', x))
-        self.bulk_rx_chk = cmds.checkBox(label='', value=False,
+        self.bulk_rx_chk = cmds.checkBox(label='', value=False, height=20,
                                         changeCommand=lambda x: self._set_all_inversions('rx', x))
         cmds.rowLayout(numberOfColumns=3, columnWidth3=(20, 20, 20))
-        self.bulk_ry_chk = cmds.checkBox(label='', value=False,
+        self.bulk_ry_chk = cmds.checkBox(label='', value=False, height=20,
                                         changeCommand=lambda x: self._set_all_inversions('ry', x))
-        self.bulk_rz_chk = cmds.checkBox(label='', value=False,
+        self.bulk_rz_chk = cmds.checkBox(label='', value=False, height=20,
                                         changeCommand=lambda x: self._set_all_inversions('rz', x))
-        cmds.button(label="✕", width=20, height=18,
+        cmds.button(label="✕", width=20, height=20,
                    command=self.clear_all_control_pairs,
                    backgroundColor=(0.7, 0.5, 0.5),
                    annotation="Clear all control pairs")
@@ -320,13 +320,13 @@ class CycleMakerUI:
         """Create a single control pair row with offset field and inversion checkboxes."""
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(320, 120))
         
-        # Controls section
-        cmds.rowLayout(numberOfColumns=3, columnWidth3=(140, 40, 140))
+        # Controls section with proper spacing
+        cmds.rowLayout(numberOfColumns=3, columnWidth3=(135, 50, 135))
         # Left control (read-only text)
         cmds.text(label=left_ctrl, align="center")
         
         # Direction swap button (shows bidirectional swap and allows swapping)
-        cmds.button(label="⇄", width=40, height=20,
+        cmds.button(label="⇄", width=50, height=20,
                    backgroundColor=(0.4, 0.5, 0.4),
                    annotation="Click to swap left/right controls",
                    command=lambda x, idx=index: self._swap_control_pair(idx))
@@ -337,23 +337,23 @@ class CycleMakerUI:
         
         # Offset and inversion checkboxes using nested structure
         cmds.rowLayout(numberOfColumns=6, columnWidth6=(60, 20, 20, 20, 20, 60))
-        offset_field = cmds.intField(value=offset, width=55,
+        offset_field = cmds.intField(value=offset, width=55, height=20,
                                    changeCommand=lambda x, idx=index: self._update_offset(idx, x))
-        tx_cb = cmds.checkBox(label='', value=inversion['tx'], 
+        tx_cb = cmds.checkBox(label='', value=inversion['tx'], height=20,
                               changeCommand=lambda x, idx=index, axis='tx': self._update_inversion(idx, axis, x))
-        ty_cb = cmds.checkBox(label='', value=inversion['ty'],
+        ty_cb = cmds.checkBox(label='', value=inversion['ty'], height=20,
                               changeCommand=lambda x, idx=index, axis='ty': self._update_inversion(idx, axis, x))
-        tz_cb = cmds.checkBox(label='', value=inversion['tz'],
+        tz_cb = cmds.checkBox(label='', value=inversion['tz'], height=20,
                               changeCommand=lambda x, idx=index, axis='tz': self._update_inversion(idx, axis, x))
-        rx_cb = cmds.checkBox(label='', value=inversion['rx'],
+        rx_cb = cmds.checkBox(label='', value=inversion['rx'], height=20,
                               changeCommand=lambda x, idx=index, axis='rx': self._update_inversion(idx, axis, x))
         # RY, RZ checkbox and Remove button in combined column
         cmds.rowLayout(numberOfColumns=3, columnWidth3=(20, 20, 20))
-        ry_cb = cmds.checkBox(label='', value=inversion['ry'],
+        ry_cb = cmds.checkBox(label='', value=inversion['ry'], height=20,
                               changeCommand=lambda x, idx=index, axis='ry': self._update_inversion(idx, axis, x))
-        rz_cb = cmds.checkBox(label='', value=inversion['rz'],
+        rz_cb = cmds.checkBox(label='', value=inversion['rz'], height=20,
                               changeCommand=lambda x, idx=index, axis='rz': self._update_inversion(idx, axis, x))
-        cmds.button(label="✕", width=20,
+        cmds.button(label="✕", width=20, height=20,
                     command=lambda x, idx=index: self._remove_control_pair(idx),
                     backgroundColor=(0.7, 0.5, 0.5))  # Red for remove actions
         cmds.setParent('..')  # RY RZ X inner rowLayout  
