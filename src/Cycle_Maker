@@ -145,12 +145,14 @@ class CycleMakerUI:
         # Headers row - use nested layouts to avoid columnWidth9 limitation
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(320, 140), height=25)
         # First part: Controls with swap all button - matching individual row layout
-        cmds.rowLayout(numberOfColumns=3, columnWidth3=(135, 50, 135))
+        cmds.rowLayout(numberOfColumns=5, columnWidth5=(120, 15, 50, 15, 120))
         cmds.text(label="Left Control", align="center", font="boldLabelFont", height=22)
+        cmds.text(label="", width=15)  # Spacer
         cmds.button(label="⇄", width=50, height=22,
                    backgroundColor=(0.6, 0.4, 0.6),
                    annotation="Swap all left/right control pairs",
                    command=self._swap_all_control_pairs)
+        cmds.text(label="", width=15)  # Spacer
         cmds.text(label="Right Control", align="center", font="boldLabelFont", height=22)
         cmds.setParent('..')  # controls header
         # Second part: Offset and checkboxes
@@ -167,10 +169,12 @@ class CycleMakerUI:
         # Bulk editing controls positioned below headers - nested structure
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(320, 140), height=22)
         # First part: Empty space above controls - matching individual row layout
-        cmds.rowLayout(numberOfColumns=3, columnWidth3=(135, 50, 135))
-        cmds.text(label="", width=135)  # Empty space above left control
+        cmds.rowLayout(numberOfColumns=5, columnWidth5=(120, 15, 50, 15, 120))
+        cmds.text(label="", width=120)  # Empty space above left control
+        cmds.text(label="", width=15)   # Spacer
         cmds.text(label="", width=50)   # Empty space above swap button
-        cmds.text(label="", width=135)  # Empty space above right control
+        cmds.text(label="", width=15)   # Spacer
+        cmds.text(label="", width=120)  # Empty space above right control
         cmds.setParent('..')  # controls spacer
         # Second part: Offset and bulk checkboxes
         cmds.rowLayout(numberOfColumns=6, columnWidth6=(60, 20, 20, 20, 20, 60))
