@@ -281,10 +281,10 @@ class CycleMakerUI:
         cmds.separator(height=15, style="in")
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1,
                       columnAttach=[(1, 'both', 2), (2, 'both', 2)])
-        cmds.button(label="Load Default Biped Controls", command=self.load_biped_defaults, height=30,
+        cmds.button(label="Load Presets", command=self.load_presets, height=30,
                    backgroundColor=(0.38, 0.45, 0.52))  # Muted blue for presets
-        cmds.button(label="Load Default Quadruped Controls", command=self.load_quad_defaults, height=30,
-                   backgroundColor=(0.38, 0.45, 0.52))  # Muted blue for presets
+        cmds.button(label="Save Presets", command=self.save_presets, height=30,
+                   backgroundColor=(0.52, 0.45, 0.38))  # Muted orange for save
         cmds.setParent('..')
     
     def _refresh_control_pairs_ui(self):
@@ -3005,29 +3005,82 @@ class CycleMakerUI:
     # SECTION 2: CONTROL MANAGEMENT (continued)
     # =========================================================================
 
-    def load_biped_defaults(self, *_):
-        lefts = ["L_leg_CTL", "L_arm_CTL", "L_foot_CTL", "L_hand_CTL", "L_clavicle_CTL"]
-        self.left_controls = lefts
-        self.right_controls = [self.get_other_side(l, left_to_right=True) for l in lefts]
-        cmds.textScrollList(self.left_list_field, edit=True, removeAll=True)
-        cmds.textScrollList(self.right_list_field, edit=True, removeAll=True)
-        for l, r in zip(self.left_controls, self.right_controls):
-            cmds.textScrollList(self.left_list_field, edit=True, append=l)
-            cmds.textScrollList(self.right_list_field, edit=True, append=r)
+    def save_presets(self, *_):
+        """Save current settings to a JSON preset file."""
+        file_path = cmds.fileDialog2(
+            caption="Save Presets",
+            fileMode=0,  # Save file
+            fileFilter="JSON Files (*.json);;All Files (*.*)",
+            defaultExtension="json"
+        )
+        
+        if not file_path:
+            return
+            
+        preset_data = {
+            'cycle_maker': {
+                'left_controls': self.left_controls[:],
+                'right_controls': self.right_controls[:],
+                'control_offsets': self.control_offsets[:],
+                'control_inversions': self.control_inversions[:]
+            },
+            'copy_with_offset': {
+                'objects': self.copy_objects[:],
+                'time_offsets': self.copy_time_offsets[:],
+                'value_offsets': self.copy_value_offsets[:],
+                'channel_settings': self.copy_channel_settings[:]
+            }
+        }
+        
+        try:
+            import json
+            with open(file_path[0], 'w') as f:
+                json.dump(preset_data, f, indent=4)
+            print(f"Saved presets to: {file_path[0]}")
+            cmds.confirmDialog(title="Success", message=f"Presets saved successfully!\n{file_path[0]}", button="OK")
+        except Exception as e:
+            cmds.warning(f"Failed to save presets: {e}")
 
-    def load_quad_defaults(self, *_):
-        lefts = [
-            "L_ikFrontLegHandle_CTL", "L_frontClavicle_CTL", "L_frontFootToe_CTL", "L_frontFootReverseRollBall_CTL",
-            "L_frontFootIndex01_CTL", "L_frontFootIndex02_CTL", "L_frontFootMiddle01_CTL", "L_frontFootMiddle02_CTL",
-            "L_frontFootRing01_CTL", "L_frontFootRing02_CTL", "L_frontFootPinky01_CTL", "L_frontFootPinky02_CTL"
-        ]
-        self.left_controls = lefts
-        self.right_controls = [self.get_other_side(l, left_to_right=True) for l in lefts]
-        cmds.textScrollList(self.left_list_field, edit=True, removeAll=True)
-        cmds.textScrollList(self.right_list_field, edit=True, removeAll=True)
-        for l, r in zip(self.left_controls, self.right_controls):
-            cmds.textScrollList(self.left_list_field, edit=True, append=l)
-            cmds.textScrollList(self.right_list_field, edit=True, append=r)
+    def load_presets(self, *_):
+        """Load settings from a JSON preset file."""
+        file_path = cmds.fileDialog2(
+            caption="Load Presets",
+            fileMode=1,  # Load file
+            fileFilter="JSON Files (*.json);;All Files (*.*)"
+        )
+        
+        if not file_path:
+            return
+            
+        try:
+            import json
+            with open(file_path[0], 'r') as f:
+                preset_data = json.load(f)
+            
+            # Load Cycle Maker data
+            if 'cycle_maker' in preset_data:
+                cm_data = preset_data['cycle_maker']
+                self.left_controls = cm_data.get('left_controls', [])
+                self.right_controls = cm_data.get('right_controls', [])
+                self.control_offsets = cm_data.get('control_offsets', [])
+                self.control_inversions = cm_data.get('control_inversions', [])
+                self._refresh_control_pairs_ui()
+            
+            # Load Copy with Offset data
+            if 'copy_with_offset' in preset_data:
+                co_data = preset_data['copy_with_offset']
+                self.copy_objects = co_data.get('objects', [])
+                self.copy_time_offsets = co_data.get('time_offsets', [])
+                self.copy_value_offsets = co_data.get('value_offsets', [])
+                self.copy_channel_settings = co_data.get('channel_settings', [])
+                self._refresh_copy_objects_ui()
+            
+            print(f"Loaded presets from: {file_path[0]}")
+            cmds.confirmDialog(title="Success", message=f"Presets loaded successfully!\n{file_path[0]}", button="OK")
+            
+        except Exception as e:
+            cmds.warning(f"Failed to load presets: {e}")
+            cmds.confirmDialog(title="Error", message=f"Failed to load presets:\n{e}", button="OK")
 
     # ---------------------
     # Actions: Spine inversion pass
