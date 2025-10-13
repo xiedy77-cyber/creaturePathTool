@@ -67,8 +67,6 @@ class CycleMakerUI:
         self.right_controls = []
         # Per-control inversion settings: [{tx: bool, ty: bool, tz: bool, rx: bool, ry: bool, rz: bool}, ...]
         self.control_inversions = []
-        # Per-control offset settings (in frames): [offset_value, ...]
-        self.control_offsets = []
 
         self.left_list_field = None  # Keep for backward compatibility
         self.right_list_field = None  # Keep for backward compatibility
@@ -92,6 +90,10 @@ class CycleMakerUI:
         self.spine_invert_z_default = True
         # Auto-detection system for X-axis inversion
         self.auto_detect_x_inversion = True
+        
+        # Spine control data structures (like left/right controls)
+        self.spine_controls = []  # List of spine control names
+        self.spine_control_inversions = []  # Channel inversions for each spine control
         
         # Copy with Offset tab data structures
         self.copy_offset_objects = []  # List of selected objects in order
@@ -142,9 +144,9 @@ class CycleMakerUI:
                         backgroundColor=(0.45, 0.42, 0.38))  # Muted orange for main sections
         cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
         
-        # Headers row - just the offset and channel labels
-        cmds.rowLayout(numberOfColumns=6, columnWidth6=(322, 20, 20, 20, 20, 60), height=22)
-        cmds.text(label="", width=322)  # Empty space above controls section
+        # Headers row - channel labels only (no offset)
+        cmds.rowLayout(numberOfColumns=6, columnWidth6=(270, 20, 20, 20, 20, 60), height=22)
+        cmds.text(label="", width=270)  # Empty space above controls section
         cmds.text(label="TX", align="center", font="smallPlainLabelFont", height=22)
         cmds.text(label="TY", align="center", font="smallPlainLabelFont", height=22)
         cmds.text(label="TZ", align="center", font="smallPlainLabelFont", height=22)
@@ -152,8 +154,8 @@ class CycleMakerUI:
         cmds.text(label="RY    RZ", align="center", font="smallPlainLabelFont", height=22)
         cmds.setParent('..')  # headers row
         
-        # Bulk editing controls with labels and controls aligned - using nested layouts
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(270, 190), height=22)
+        # Bulk editing controls with labels and controls aligned - using nested layouts (no offset)
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(270, 128), height=22)
         # First part: Labels and swap button
         cmds.rowLayout(numberOfColumns=3, columnWidth3=(110, 50, 110))
         cmds.text(label="Left Control", align="center", font="boldLabelFont", height=20)
@@ -163,10 +165,8 @@ class CycleMakerUI:
                    command=self._swap_all_control_pairs)
         cmds.text(label="Right Control", align="center", font="boldLabelFont", height=20)
         cmds.setParent('..')  # labels and swap
-        # Second part: Offset field and checkboxes
-        cmds.rowLayout(numberOfColumns=6, columnWidth6=(62, 20, 20, 20, 20, 68))
-        cmds.intField(value=20, width=55, height=20, annotation="Set this offset for all pairs",
-                     changeCommand=self._set_all_offsets)
+        # Second part: Channel checkboxes only (no offset field)
+        cmds.rowLayout(numberOfColumns=5, columnWidth5=(20, 20, 20, 20, 68))
         self.bulk_tx_chk = cmds.checkBox(label='', value=False, height=20,
                                         changeCommand=lambda x: self._set_all_inversions('tx', x))
         self.bulk_ty_chk = cmds.checkBox(label='', value=False, height=20,
@@ -200,16 +200,61 @@ class CycleMakerUI:
         cmds.setParent('..')  # frameLayout
         
         cmds.separator(height=12, style="in")
-        # Add button for Left/Right control pairs
+        # Add Selected and Copy buttons on one line
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1,
+                      columnAttach=[(1, 'both', 2), (2, 'both', 2)])
         cmds.button(label="Add Selected", command=self.add_selected_controls, height=28,
                    backgroundColor=(0.42, 0.48, 0.42))  # Muted green for add actions
-        cmds.separator(height=12, style="in")
-        
-        # Copy button with improved layout
-        cmds.button(label="Copy Across", command=self.copy_with_direction, height=28,
+        cmds.button(label="Copy Left <--> Right", command=self.copy_with_direction, height=28,
                    backgroundColor=(0.42, 0.48, 0.42))  # Muted green for primary action
+        cmds.setParent('..')  # rowLayout
         
-        # Auto-detection options
+        cmds.separator(height=15, style="in")
+        
+        # Spine/centerline inversion options
+        cmds.frameLayout(label="Spine/Centerline Inversion", collapsable=True, collapse=False, 
+                        marginHeight=8, marginWidth=8, borderVisible=True,
+                        backgroundColor=(0.46, 0.38, 0.46))  # Muted purple for spine controls
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
+        
+        # Headers row for spine controls
+        cmds.rowLayout(numberOfColumns=6, columnWidth6=(322, 20, 20, 20, 20, 60), height=22)
+        cmds.text(label="", width=322)  # Empty space above control name
+        cmds.text(label="TX", align="center", font="smallPlainLabelFont", height=22)
+        cmds.text(label="TY", align="center", font="smallPlainLabelFont", height=22)
+        cmds.text(label="TZ", align="center", font="smallPlainLabelFont", height=22)
+        cmds.text(label="RX", align="center", font="smallPlainLabelFont", height=22)
+        cmds.text(label="RY    RZ", align="center", font="smallPlainLabelFont", height=22)
+        cmds.setParent('..')  # headers row
+        
+        # Scrollable area for spine controls
+        self.spine_controls_scroll = cmds.scrollLayout(height=120, childResizable=True, 
+                                                      backgroundColor=(0.85, 0.85, 0.85))
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
+        # Spine control items will be added here dynamically
+        cmds.setParent('..')  # columnLayout
+        cmds.setParent('..')  # scrollLayout
+        
+        # Add Selected and Cycle Spine buttons on one line
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1,
+                      columnAttach=[(1, 'both', 2), (2, 'both', 2)])
+        cmds.button(label="Add Selected", command=self.add_selected_to_spine_list, height=28,
+                   backgroundColor=(0.42, 0.48, 0.42))  # Muted green for add
+        cmds.button(label="Cycle Spine Control", command=self.invert_spine_channels, height=28,
+                   backgroundColor=(0.46, 0.38, 0.46))  # Muted purple to match spine theme
+        cmds.setParent('..')  # rowLayout
+        
+        cmds.setParent('..')  # columnLayout
+        cmds.setParent('..')  # frameLayout
+
+
+
+        cmds.separator(height=15, style="in")
+        
+        # Auto-detection options (moved to bottom)
+        cmds.frameLayout(label="Auto-Detect Axis Conventions", collapsable=True, collapse=False, 
+                        marginHeight=8, marginWidth=8, borderVisible=True,
+                        backgroundColor=(0.45, 0.45, 0.45))  # Neutral gray for auto-detect
         cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
         self.auto_detect_checkbox = cmds.checkBox(label="Auto-Detect Axis Conventions", value=True,
                                                  annotation="Automatically analyze rig during copy operations")
@@ -223,48 +268,19 @@ class CycleMakerUI:
                    annotation="Apply auto-detection results to inversion checkboxes")
         cmds.setParent('..')  # rowLayout
         cmds.setParent('..')  # columnLayout
+        cmds.setParent('..')  # frameLayout
         
-        cmds.separator(height=15, style="in")
-        
-        # Spine/centerline inversion options
-        cmds.frameLayout(label="Spine/Centerline Inversion", collapsable=True, collapse=False, 
+        # Fit Curve to Timeline option
+        cmds.separator(height=10)
+        cmds.frameLayout(label="Animation Curve Options", collapsable=True, collapse=False, 
                         marginHeight=8, marginWidth=8, borderVisible=True,
-                        backgroundColor=(0.46, 0.38, 0.46))  # Muted purple for spine controls
-        cmds.columnLayout(adjustableColumn=True, rowSpacing=5)
-        cmds.text(label="Spine Controls (will invert rotateY/rotateZ):", font="boldLabelFont")
-        
-        # Spine controls list with Add/Remove buttons - improved layout
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(260, 150), 
-                      columnAttach=[(1, 'both', 2), (2, 'both', 2)])
-        self.spine_controls_list = cmds.textScrollList(numberOfRows=4, allowMultiSelection=True, width=250,
-                                                      backgroundColor=(0.8, 0.8, 0.8))  # Softer gray for lists
-        
+                        backgroundColor=(0.42, 0.48, 0.42))  # Muted green for curve options
         cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
-        cmds.button(label="Add Selected", command=self.add_selected_to_spine_list, width=140, height=26,
-                   backgroundColor=(0.42, 0.48, 0.42))  # Muted green for add
-        cmds.button(label="Remove Selected", command=self.remove_selected_from_spine_list, width=140, height=26,
-                   backgroundColor=(0.52, 0.42, 0.42))  # Muted red for remove
-        cmds.button(label="Clear All", command=self.clear_spine_list, width=140, height=26,
-                   backgroundColor=(0.48, 0.48, 0.48))  # Softer gray for clear
-        cmds.setParent('..')  # columnLayout
-        cmds.setParent('..')  # rowLayout
-        
-        cmds.rowLayout(numberOfColumns=4, columnWidth4=(140, 60, 140, 60), adjustableColumn=2,
-                      columnAttach=[(1, 'left', 5), (3, 'left', 5)])
-        cmds.text(label="Invert rotateY:", font="plainLabelFont")
-        self.invert_y_chk = cmds.checkBox(label='', value=self.spine_invert_y_default)
-        cmds.text(label="Invert rotateZ:", font="plainLabelFont")
-        self.invert_z_chk = cmds.checkBox(label='', value=self.spine_invert_z_default)
-        cmds.setParent('..')  # rowLayout
-        # Action button for manual spine inversion
-        cmds.separator(height=8, style="in")
-        cmds.button(label="Invert Spine Channels on Selection", command=self.invert_spine_channels, height=28,
-                   backgroundColor=(0.46, 0.38, 0.46))  # Muted purple to match spine theme
+        self.fit_curve_checkbox = cmds.checkBox(label="Fit Curve to Timeline", value=False,
+                                               annotation="Automatically fit animation curves within the timeline range after copy operations")
         cmds.setParent('..')  # columnLayout
         cmds.setParent('..')  # frameLayout
-
-
-
+        
         cmds.separator(height=15, style="in")
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1,
                       columnAttach=[(1, 'both', 2), (2, 'both', 2)])
@@ -295,20 +311,13 @@ class CycleMakerUI:
                     'rx': False, 'ry': False, 'rz': False
                 })
             
-            # Ensure we have offset data for this pair
-            while len(self.control_offsets) <= i:
-                # Default offset: half the cycle length (20 frames for 40-frame cycle)
-                cycle_length = 40  # Could get this from playback range later
-                self.control_offsets.append(cycle_length // 2)
-            
             inversion = self.control_inversions[i]
-            offset = self.control_offsets[i]
-            self._create_control_pair_row(i, left_ctrl, right_ctrl, offset, inversion)
+            self._create_control_pair_row(i, left_ctrl, right_ctrl, inversion)
         
         cmds.setParent('..')  # columnLayout
     
-    def _create_control_pair_row(self, index, left_ctrl, right_ctrl, offset, inversion):
-        """Create a single control pair row with offset field and inversion checkboxes."""
+    def _create_control_pair_row(self, index, left_ctrl, right_ctrl, inversion):
+        """Create a single control pair row with inversion checkboxes (no offset field)."""
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(320, 120))
         
         # Controls section with proper spacing and margins
@@ -328,10 +337,8 @@ class CycleMakerUI:
         cmds.text(label=right_ctrl, align="center")
         cmds.setParent('..')  # controls sub-layout
         
-        # Offset and inversion checkboxes using nested structure
-        cmds.rowLayout(numberOfColumns=6, columnWidth6=(60, 20, 20, 20, 20, 60))
-        offset_field = cmds.intField(value=offset, width=55, height=20,
-                                   changeCommand=lambda x, idx=index: self._update_offset(idx, x))
+        # Inversion checkboxes only (no offset field)
+        cmds.rowLayout(numberOfColumns=5, columnWidth5=(20, 20, 20, 20, 60))
         tx_cb = cmds.checkBox(label='', value=inversion['tx'], height=20,
                               changeCommand=lambda x, idx=index, axis='tx': self._update_inversion(idx, axis, x))
         ty_cb = cmds.checkBox(label='', value=inversion['ty'], height=20,
@@ -359,10 +366,7 @@ class CycleMakerUI:
             self.control_inversions[index][axis] = value
 
     
-    def _update_offset(self, index, value):
-        """Update offset setting for a specific control pair."""
-        if index < len(self.control_offsets):
-            self.control_offsets[index] = value
+
 
     
     def _swap_control_pair(self, index):
@@ -397,8 +401,6 @@ class CycleMakerUI:
             right_ctrl = self.right_controls.pop(index)
             if index < len(self.control_inversions):
                 self.control_inversions.pop(index)
-            if index < len(self.control_offsets):
-                self.control_offsets.pop(index)
 
             self._refresh_control_pairs_ui()
     
@@ -512,16 +514,18 @@ class CycleMakerUI:
         for ctrl in sel:
             ctrl_short = ctrl.split(':')[-1] if ':' in ctrl else ctrl
             if self.is_left(ctrl_short):
-                right_ctrl = self.get_other_side(ctrl_short, left_to_right=True)
-                if ctrl_short not in self.left_controls and right_ctrl and right_ctrl not in self.right_controls:
-                    self.left_controls.append(ctrl_short)
-                    self.right_controls.append(right_ctrl)
+                # Find the opposite control using full name (with namespace)
+                right_ctrl = self.get_other_side(ctrl, left_to_right=True)  # Use full name
+                if ctrl not in self.left_controls and right_ctrl and right_ctrl not in self.right_controls:
+                    self.left_controls.append(ctrl)  # Store full name
+                    self.right_controls.append(right_ctrl)  # Store full opposite name
 
             elif self.is_right(ctrl_short):
-                left_ctrl = self.get_other_side(ctrl_short, left_to_right=False)
-                if ctrl_short not in self.right_controls and left_ctrl and left_ctrl not in self.left_controls:
-                    self.right_controls.append(ctrl_short)
-                    self.left_controls.append(left_ctrl)
+                # Find the opposite control using full name (with namespace)
+                left_ctrl = self.get_other_side(ctrl, left_to_right=False)  # Use full name
+                if ctrl not in self.right_controls and left_ctrl and left_ctrl not in self.left_controls:
+                    self.right_controls.append(ctrl)  # Store full name
+                    self.left_controls.append(left_ctrl)  # Store full opposite name
 
             else:
                 cmds.warning(f"Control name does not match left/right pattern: {ctrl_short}")
@@ -551,14 +555,111 @@ class CycleMakerUI:
         return bool(re.search(r"(^|:|_)R(_|$)", name))
 
     def get_other_side(self, name, left_to_right=True):
-        """Convert left control name to right (or vice versa)."""
+        """Convert left control name to right (or vice versa). Returns None if opposite doesn't exist."""
+        original_name = name
+        print(f"DEBUG: get_other_side called with: '{original_name}', left_to_right={left_to_right}")
+        
         if left_to_right:
             # Handle both L_ and _L patterns
             name = re.sub(r"(^|:|_)L(_|$)", r"\1R\2", name)
         else:
             # Handle both R_ and _R patterns
             name = re.sub(r"(^|:|_)R(_|$)", r"\1L\2", name)
-        return name
+        
+        print(f"DEBUG: Pattern conversion result: '{name}'")
+        
+        # Check if the conversion actually changed the name
+        if name == original_name:
+            # No L/R pattern found, return None
+            print(f"DEBUG: No L/R pattern found in '{original_name}'")
+            return None
+            
+        # Check if the opposite control actually exists in the scene
+        if cmds.objExists(name):
+            return name
+        else:
+            # Try Maya's symmetry selection as fallback
+            try:
+                print(f"DEBUG: Trying Maya symmetry for '{original_name}'")
+                
+                # Store current selection to restore later
+                current_selection = cmds.ls(selection=True)
+                
+                # Check if the original control exists first
+                if not cmds.objExists(original_name):
+                    print(f"DEBUG: Original control '{original_name}' does not exist!")
+                    return None
+                
+                # Select the original control first
+                cmds.select(original_name, replace=True)
+                print(f"DEBUG: Selected '{original_name}' successfully")
+                
+                # Use cmds.select with symmetry flag (more reliable than MEL)
+                cmds.select(symmetry=True)
+                
+                # Get the symmetry selection result
+                symmetry_selection = cmds.ls(selection=True)
+                print(f"DEBUG: Symmetry selection result: {symmetry_selection}")
+                
+                # Find the symmetric counterpart (should be different from original)
+                opposite_found = None
+                for ctrl in symmetry_selection:
+                    if ctrl != original_name and cmds.objExists(ctrl):
+                        opposite_found = ctrl
+                        break
+                
+                # Restore original selection
+                if current_selection:
+                    cmds.select(current_selection, replace=True)
+                else:
+                    cmds.select(clear=True)
+                
+                if opposite_found:
+                    print(f"Found opposite using Maya symmetry: {original_name} -> {opposite_found}")
+                    return opposite_found
+                else:
+                    print(f"DEBUG: No opposite found in symmetry selection")
+                        
+            except Exception as e:
+                print(f"Maya symmetry selection failed: {e}")
+                try:
+                    # Restore selection even if symmetry failed
+                    if current_selection:
+                        cmds.select(current_selection, replace=True)
+                    else:
+                        cmds.select(clear=True)
+                except:
+                    pass
+                
+            # Final fallback: Try more aggressive pattern matching
+            try:
+                # Get all objects in scene that might be opposites
+                all_objects = cmds.ls(type='transform')
+                
+                # Create pattern variations to search for
+                search_patterns = []
+                if 'R_' in original_name:
+                    search_patterns.append(original_name.replace('R_', 'L_'))
+                if '_R' in original_name:
+                    search_patterns.append(original_name.replace('_R', '_L'))
+                if ':R_' in original_name:
+                    search_patterns.append(original_name.replace(':R_', ':L_'))
+                if 'Right' in original_name:
+                    search_patterns.append(original_name.replace('Right', 'Left'))
+                if 'right' in original_name:
+                    search_patterns.append(original_name.replace('right', 'left'))
+                    
+                # Check each pattern
+                for pattern in search_patterns:
+                    if pattern in all_objects:
+                        print(f"Found opposite using pattern matching: {original_name} -> {pattern}")
+                        return pattern
+                        
+            except Exception as e:
+                print(f"Pattern matching fallback failed: {e}")
+            
+            print(f"Could not find opposite control for '{original_name}' (tried '{name}' and various patterns)")
+            return None
 
     def extract_rig_prefix(self, control_name):
         """Extract the rig prefix/namespace from a control name.
@@ -962,11 +1063,8 @@ class CycleMakerUI:
     # =========================================================================
 
     def _get_spine_controls(self):
-        """Return list of spine controls from UI."""
-        try:
-            return cmds.textScrollList(self.spine_controls_list, query=True, allItems=True) or []
-        except Exception:
-            return []
+        """Return list of spine controls from data structures."""
+        return self.spine_controls[:]
     
     def add_selected_to_spine_list(self, *_):
         """Add currently selected objects to the spine controls list."""
@@ -975,51 +1073,99 @@ class CycleMakerUI:
             cmds.warning("No objects selected to add to spine controls list.")
             return
         
-        current_items = cmds.textScrollList(self.spine_controls_list, query=True, allItems=True) or []
-        
         added_count = 0
         for item in selected:
-            if item not in current_items:
-                cmds.textScrollList(self.spine_controls_list, edit=True, append=item)
+            if item not in self.spine_controls:
+                self.spine_controls.append(item)
+                # Add default channel inversions (RY and RZ inverted for spine)
+                self.spine_control_inversions.append({
+                    'tx': False, 'ty': False, 'tz': False,
+                    'rx': False, 'ry': True, 'rz': True  # Default spine inversions
+                })
                 added_count += 1
         
-        print(f"Added {added_count} controls to spine list")
+        if added_count > 0:
+            self._refresh_spine_controls_ui()
+            print(f"Added {added_count} controls to spine list")
     
-    def remove_selected_from_spine_list(self, *_):
-        """Remove selected items from the spine controls list."""
-        selected_items = cmds.textScrollList(self.spine_controls_list, query=True, selectItem=True) or []
-        if not selected_items:
-            cmds.warning("No items selected in the spine controls list to remove.")
-            return
-        
-        for item in selected_items:
-            cmds.textScrollList(self.spine_controls_list, edit=True, removeItem=item)
-        
-        print(f"Removed {len(selected_items)} controls from spine list")
+    def remove_spine_control(self, index, *_):
+        """Remove a spine control by index."""
+        if 0 <= index < len(self.spine_controls):
+            removed_control = self.spine_controls.pop(index)
+            self.spine_control_inversions.pop(index)
+            self._refresh_spine_controls_ui()
+            print(f"Removed spine control: {removed_control}")
     
-    def clear_spine_list(self, *_):
-        """Clear all items from the spine controls list."""
-        cmds.textScrollList(self.spine_controls_list, edit=True, removeAll=True)
-        print("Cleared all controls from spine list")
+    def _refresh_spine_controls_ui(self):
+        """Refresh the spine controls UI display."""
+        # Clear existing UI elements in the scroll layout
+        if cmds.scrollLayout(self.spine_controls_scroll, exists=True):
+            children = cmds.scrollLayout(self.spine_controls_scroll, query=True, childArray=True) or []
+            for child in children:
+                if cmds.layout(child, exists=True):
+                    cmds.deleteUI(child)
+        
+        # Set parent to scroll layout's column layout
+        cmds.setParent(self.spine_controls_scroll)
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
+        
+        # Create UI for each spine control
+        for i, control in enumerate(self.spine_controls):
+            self._create_spine_control_row(i, control)
+        
+        cmds.setParent('..')  # columnLayout
+        cmds.setParent('..')  # scrollLayout
+    
+    def _create_spine_control_row(self, index, control_name):
+        """Create a UI row for a single spine control."""
+        inversions = self.spine_control_inversions[index]
+        
+        # Main row layout
+        cmds.rowLayout(numberOfColumns=6, columnWidth6=(250, 20, 20, 20, 20, 72), height=22)
+        
+        # Control name
+        cmds.text(label=control_name, align="left", font="plainLabelFont", height=20)
+        
+        # Channel checkboxes
+        cmds.checkBox(label='', value=inversions['tx'], height=20,
+                     changeCommand=lambda x, idx=index, ch='tx': self._update_spine_inversion(idx, ch, x))
+        cmds.checkBox(label='', value=inversions['ty'], height=20,
+                     changeCommand=lambda x, idx=index, ch='ty': self._update_spine_inversion(idx, ch, x))
+        cmds.checkBox(label='', value=inversions['tz'], height=20,
+                     changeCommand=lambda x, idx=index, ch='tz': self._update_spine_inversion(idx, ch, x))
+        cmds.checkBox(label='', value=inversions['rx'], height=20,
+                     changeCommand=lambda x, idx=index, ch='rx': self._update_spine_inversion(idx, ch, x))
+        
+        # RY and RZ with remove button
+        cmds.rowLayout(numberOfColumns=3, columnWidth3=(20, 20, 32))
+        cmds.checkBox(label='', value=inversions['ry'], height=20,
+                     changeCommand=lambda x, idx=index, ch='ry': self._update_spine_inversion(idx, ch, x))
+        cmds.checkBox(label='', value=inversions['rz'], height=20,
+                     changeCommand=lambda x, idx=index, ch='rz': self._update_spine_inversion(idx, ch, x))
+        cmds.button(label="✕", width=30, height=20,
+                   command=lambda x, idx=index: self.remove_spine_control(idx),
+                   backgroundColor=(0.7, 0.5, 0.5),
+                   annotation=f"Remove {control_name}")
+        cmds.setParent('..')  # RY RZ X layout
+        cmds.setParent('..')  # main row
+    
+    def _update_spine_inversion(self, index, channel, value):
+        """Update inversion setting for a spine control channel."""
+        if 0 <= index < len(self.spine_control_inversions):
+            self.spine_control_inversions[index][channel] = value
 
     def clear_all_control_pairs(self, *_):
         """Clear all left/right control pairs."""
         # Clear the data arrays
         self.left_controls.clear()
         self.right_controls.clear()
-        self.control_offsets.clear()
         self.control_inversions.clear()
         
         # Refresh the UI to remove all rows
         self._refresh_control_pairs_ui()
         print("Cleared all left/right control pairs")
 
-    def _set_all_offsets(self, value):
-        """Set the same offset value for all control pairs in Cycle Maker tab."""
-        for i in range(len(self.control_offsets)):
-            self.control_offsets[i] = value
-        self._refresh_control_pairs_ui()
-        print(f"Set all offsets to {value}")
+
 
     def _set_all_inversions(self, axis, value):
         """Set the same inversion value for all control pairs for a specific axis."""
@@ -2378,10 +2524,82 @@ class CycleMakerUI:
 
     def copy_left_to_right(self, *_):
         """Copy animation from left controls to right controls using per-control settings."""
+        print("DEBUG: copy_left_to_right called")
+        
+        # Check for selected objects first
+        selected_objects = cmds.ls(selection=True, type='transform')
+        
+        # Debug: Also check selection without type filter
+        all_selected = cmds.ls(selection=True)
+        print(f"DEBUG: All selected objects: {all_selected}")
+        print(f"DEBUG: Transform-filtered selected objects: {selected_objects}")
+        
+        if selected_objects:
+            # Use selected objects only
+            print(f"Processing selected objects: {selected_objects}")
+            
+            # Calculate offset as half the timeline length
+            start_time = cmds.playbackOptions(query=True, minTime=True)
+            end_time = cmds.playbackOptions(query=True, maxTime=True)
+            offset = int((end_time - start_time + 1) / 2)
+            
+            for selected_ctrl in selected_objects:
+                # Check if this control is in our left controls list
+                if selected_ctrl in self.left_controls:
+                    index = self.left_controls.index(selected_ctrl)
+                    right_ctrl = self.right_controls[index] if index < len(self.right_controls) and self.right_controls[index] else self.get_other_side(selected_ctrl, left_to_right=True)
+                    
+                    if selected_ctrl == right_ctrl:
+                        cmds.warning(f"Skipping pair with identical names: {selected_ctrl}")
+                        continue
+                    
+                    # Get per-control inversion settings
+                    inversion = self.control_inversions[index] if index < len(self.control_inversions) else {}
+                    
+                    # Copy with calculated offset and per-control settings
+                    self._copy_with_per_control_settings(selected_ctrl, right_ctrl, offset, inversion)
+                    print(f"Copied {selected_ctrl} -> {right_ctrl}")
+                
+                # Also check if this control is in our right controls list (reverse copy)
+                elif selected_ctrl in self.right_controls:
+                    print(f"DEBUG: Found '{selected_ctrl}' in right_controls list")
+                    index = self.right_controls.index(selected_ctrl)
+                    left_ctrl = self.left_controls[index] if index < len(self.left_controls) and self.left_controls[index] else self.get_other_side(selected_ctrl, left_to_right=False)
+                    
+                    if selected_ctrl == left_ctrl:
+                        cmds.warning(f"Skipping pair with identical names: {selected_ctrl}")
+                        continue
+                    
+                    # Get per-control inversion settings
+                    inversion = self.control_inversions[index] if index < len(self.control_inversions) else {}
+                    
+                    # Copy with calculated offset and per-control settings (reverse direction)
+                    self._copy_with_per_control_settings(selected_ctrl, left_ctrl, offset, inversion)
+                    print(f"Copied {selected_ctrl} -> {left_ctrl} (reverse direction)")
+                
+                else:
+                    # Control not in lists - try to find its opposite side automatically
+                    print(f"DEBUG: '{selected_ctrl}' not found in control lists. Current lists:")
+                    print(f"DEBUG: Left controls: {self.left_controls}")
+                    print(f"DEBUG: Right controls: {self.right_controls}")
+                    opposite_ctrl = self.get_other_side(selected_ctrl, left_to_right=True)
+                    if opposite_ctrl and opposite_ctrl != selected_ctrl:
+                        # Use default inversion settings (no specific inversions)
+                        default_inversion = {}
+                        
+                        # Copy with calculated offset and default settings
+                        self._copy_with_per_control_settings(selected_ctrl, opposite_ctrl, offset, default_inversion)
+                        print(f"Copied {selected_ctrl} -> {opposite_ctrl} (auto-detected opposite)")
+                    else:
+                        cmds.warning(f"Could not find opposite side control for '{selected_ctrl}'. Consider adding it to the control lists for more precise control.")
+            return
+        
+        # Fall back to full lists if nothing selected
         if not self.left_controls or not self.right_controls:
             cmds.warning("Left or Right list is empty. Please add paired controls first.")
             return
 
+        print("No objects selected. Processing all left/right control pairs.")
         count = min(len(self.left_controls), len(self.right_controls))
         if len(self.left_controls) != len(self.right_controls):
             cmds.warning(f"Left/Right list lengths differ (L={len(self.left_controls)} R={len(self.right_controls)}). Using first {count} pairs.")
@@ -2393,19 +2611,89 @@ class CycleMakerUI:
                 cmds.warning(f"Skipping pair with identical names: {left_ctrl}")
                 continue
             
-            # Get per-control settings
-            offset = self.control_offsets[i] if i < len(self.control_offsets) else 0
+            # Calculate offset as half the timeline length
+            start_time = cmds.playbackOptions(query=True, minTime=True)
+            end_time = cmds.playbackOptions(query=True, maxTime=True)
+            offset = int((end_time - start_time + 1) / 2)
+            
+            # Get per-control inversion settings
             inversion = self.control_inversions[i] if i < len(self.control_inversions) else {}
             
-            # Copy with per-control settings
+            # Copy with calculated offset and per-control settings
             self._copy_with_per_control_settings(left_ctrl, right_ctrl, offset, inversion)
 
     def copy_right_to_left(self, *_):
         """Copy animation from right controls to left controls using per-control settings."""
+        # Check for selected objects first
+        selected_objects = cmds.ls(selection=True, type='transform')
+        
+        # Debug: Also check selection without type filter
+        all_selected = cmds.ls(selection=True)
+        print(f"DEBUG: All selected objects: {all_selected}")
+        print(f"DEBUG: Transform-filtered selected objects: {selected_objects}")
+        
+        if selected_objects:
+            # Use selected objects only
+            print(f"Processing selected objects: {selected_objects}")
+            
+            # Calculate offset as half the timeline length
+            start_time = cmds.playbackOptions(query=True, minTime=True)
+            end_time = cmds.playbackOptions(query=True, maxTime=True)
+            offset = int((end_time - start_time + 1) / 2)
+            
+            for selected_ctrl in selected_objects:
+                # Check if this control is in our right controls list
+                if selected_ctrl in self.right_controls:
+                    index = self.right_controls.index(selected_ctrl)
+                    left_ctrl = self.left_controls[index] if index < len(self.left_controls) and self.left_controls[index] else self.get_other_side(selected_ctrl, left_to_right=False)
+                    
+                    if selected_ctrl == left_ctrl:
+                        cmds.warning(f"Skipping pair with identical names: {selected_ctrl}")
+                        continue
+                    
+                    # Get per-control inversion settings
+                    inversion = self.control_inversions[index] if index < len(self.control_inversions) else {}
+                    
+                    # Copy with calculated offset and per-control settings
+                    self._copy_with_per_control_settings(selected_ctrl, left_ctrl, offset, inversion)
+                    print(f"Copied {selected_ctrl} -> {left_ctrl}")
+                
+                # Also check if this control is in our left controls list (reverse copy)
+                elif selected_ctrl in self.left_controls:
+                    index = self.left_controls.index(selected_ctrl)
+                    right_ctrl = self.right_controls[index] if index < len(self.right_controls) and self.right_controls[index] else self.get_other_side(selected_ctrl, left_to_right=True)
+                    
+                    if selected_ctrl == right_ctrl:
+                        cmds.warning(f"Skipping pair with identical names: {selected_ctrl}")
+                        continue
+                    
+                    # Get per-control inversion settings
+                    inversion = self.control_inversions[index] if index < len(self.control_inversions) else {}
+                    
+                    # Copy with calculated offset and per-control settings (reverse direction)
+                    self._copy_with_per_control_settings(selected_ctrl, right_ctrl, offset, inversion)
+                    print(f"Copied {selected_ctrl} -> {right_ctrl} (reverse direction)")
+                
+                else:
+                    # Control not in lists - try to find its opposite side automatically
+                    opposite_ctrl = self.get_other_side(selected_ctrl, left_to_right=False)
+                    if opposite_ctrl and opposite_ctrl != selected_ctrl:
+                        # Use default inversion settings (no specific inversions)
+                        default_inversion = {}
+                        
+                        # Copy with calculated offset and default settings
+                        self._copy_with_per_control_settings(selected_ctrl, opposite_ctrl, offset, default_inversion)
+                        print(f"Copied {selected_ctrl} -> {opposite_ctrl} (auto-detected opposite)")
+                    else:
+                        cmds.warning(f"Could not find opposite side control for '{selected_ctrl}'. Consider adding it to the control lists for more precise control.")
+            return
+        
+        # Fall back to full lists if nothing selected
         if not self.left_controls or not self.right_controls:
             cmds.warning("Left or Right list is empty. Please add paired controls first.")
             return
 
+        print("No objects selected. Processing all right/left control pairs.")
         count = min(len(self.left_controls), len(self.right_controls))
         if len(self.left_controls) != len(self.right_controls):
             cmds.warning(f"Left/Right list lengths differ (L={len(self.left_controls)} R={len(self.right_controls)}). Using first {count} pairs.")
@@ -2417,11 +2705,15 @@ class CycleMakerUI:
                 cmds.warning(f"Skipping pair with identical names: {right_ctrl}")
                 continue
             
-            # Get per-control settings
-            offset = self.control_offsets[i] if i < len(self.control_offsets) else 0
+            # Calculate offset as half the timeline length
+            start_time = cmds.playbackOptions(query=True, minTime=True)
+            end_time = cmds.playbackOptions(query=True, maxTime=True)
+            offset = int((end_time - start_time + 1) / 2)
+            
+            # Get per-control inversion settings
             inversion = self.control_inversions[i] if i < len(self.control_inversions) else {}
             
-            # Copy with per-control settings
+            # Copy with calculated offset and per-control settings
             self._copy_with_per_control_settings(right_ctrl, left_ctrl, offset, inversion)
     
     def _copy_with_per_control_settings(self, source_ctrl, target_ctrl, time_offset, inversion_settings):
@@ -2469,6 +2761,11 @@ class CycleMakerUI:
                 print(f"DEBUG L→R: Applying tangent smoothing to {target_attr}")
                 self._smooth_cycle_transitions(target_attr)
                 self._apply_cycle_infinity(target_attr)
+                
+                # Apply curve fitting if checkbox is enabled
+                if cmds.checkBox(self.fit_curve_checkbox, query=True, value=True):
+                    print(f"DEBUG: Applying curve fitting to {target_attr}")
+                    self.contain_curve_within_time_range(target_attr)
                 
                 # Timeline fitting disabled - cycle infinity handles offset curves properly
                 # Keyframes can extend beyond timeline when using cycle infinity
@@ -3015,7 +3312,6 @@ class CycleMakerUI:
             'cycle_maker': {
                 'left_controls': self.left_controls[:],
                 'right_controls': self.right_controls[:],
-                'control_offsets': self.control_offsets[:],
                 'control_inversions': self.control_inversions[:],
                 'spine_controls': self._get_spine_controls(),
                 'spine_invert_y': cmds.checkBox(self.invert_y_chk, query=True, value=True),
@@ -3065,7 +3361,6 @@ class CycleMakerUI:
                 cm_data = preset_data['cycle_maker']
                 self.left_controls = cm_data.get('left_controls', [])
                 self.right_controls = cm_data.get('right_controls', [])
-                self.control_offsets = cm_data.get('control_offsets', [])
                 self.control_inversions = cm_data.get('control_inversions', [])
                 self._refresh_control_pairs_ui()
                 
@@ -3108,14 +3403,21 @@ class CycleMakerUI:
         - rotateY, rotateZ, translateX, translateZ: antiphase (second half = negative of first half)
         - rotateX, translateY: standard cycle (second half = copy of first half)
         """
+        # Check for selected objects first
         sel = cmds.ls(selection=True) or []
-        if not sel:
-            cmds.warning("Select one or more controls to invert spine channels.")
-            return
         spine_controls = self._get_spine_controls()
-        if not spine_controls:
-            cmds.warning("No spine controls defined. Add controls to the Spine Controls list first.")
-            return
+        
+        if sel:
+            # Use selected objects (work with any selection, not just spine controls list)
+            print(f"Processing selected objects for spine cycling: {sel}")
+            # Note: We'll process all selected objects, even if not in spine controls list
+        else:
+            # Fall back to all spine controls if nothing selected
+            if not spine_controls:
+                cmds.warning("No spine controls defined. Add controls to the Spine Controls list first.")
+                return
+            sel = spine_controls
+            print(f"No objects selected. Processing all spine controls: {sel}")
             
         try:
             invert_y = cmds.checkBox(self.invert_y_chk, query=True, value=True)
@@ -3140,8 +3442,7 @@ class CycleMakerUI:
 
         count = 0
         for node in sel:
-            if node not in spine_controls:
-                continue
+            # Node is already validated to be in spine_controls
             # Antiphase channels
             for attr in antiphase_attrs:
                 plug = f"{node}.{attr}"
@@ -3153,6 +3454,10 @@ class CycleMakerUI:
                 if not self._anim_curve_for_attr(plug):
                     continue
                 self._rebuild_second_half_antiphase(plug, start, mid, end)
+                # Apply curve fitting if checkbox is enabled
+                if cmds.checkBox(self.fit_curve_checkbox, query=True, value=True):
+                    print(f"DEBUG: Applying curve fitting to {plug}")
+                    self.contain_curve_within_time_range(plug)
                 count += 1
             # Standard cycle channels
             for attr in standard_attrs:
@@ -3165,6 +3470,10 @@ class CycleMakerUI:
                 if not self._anim_curve_for_attr(plug):
                     continue
                 self._rebuild_second_half_standard(plug, start, mid, end)
+                # Apply curve fitting if checkbox is enabled
+                if cmds.checkBox(self.fit_curve_checkbox, query=True, value=True):
+                    print(f"DEBUG: Applying curve fitting to {plug}")
+                    self.contain_curve_within_time_range(plug)
                 count += 1
 
         if count == 0:
@@ -3397,6 +3706,11 @@ class CycleMakerUI:
                 self._smooth_cycle_transitions(target_attr)
                 self._apply_cycle_infinity(target_attr)
                 
+                # Apply curve fitting if checkbox is enabled
+                if cmds.checkBox(self.fit_curve_checkbox, query=True, value=True):
+                    print(f"DEBUG: Applying curve fitting to {target_attr}")
+                    self.contain_curve_within_time_range(target_attr)
+                
                 # Restore lock state
                 if relock:
                     try:
@@ -3509,6 +3823,100 @@ class CycleMakerUI:
             self.copy_left_to_right()
         except Exception as e:
             cmds.warning(f"Copy with direction failed: {e}")
+
+    def contain_curve_within_time_range(self, curve_attr):
+        """
+        Takes a cyclical animation curve and recreates it within the time range using copy/paste operations.
+        This maintains the exact same animation look but creates real keys within the time range.
+        
+        Args:
+            curve_attr: The attribute name (e.g., "pCube1.translateX") to process
+        """
+        
+        # Get the current time range
+        start_time = int(cmds.playbackOptions(query=True, minTime=True))
+        end_time = int(cmds.playbackOptions(query=True, maxTime=True))
+        
+        print(f"Fitting curve {curve_attr} to time range: {start_time} to {end_time}")
+        
+        # Get the animation curve for this attribute
+        curve_name = self._anim_curve_for_attr(curve_attr)
+        if not curve_name:
+            print(f"No animation curve found for {curve_attr}")
+            return
+        
+        # Get all keyframes on the curve
+        all_times = cmds.keyframe(curve_name, query=True, timeChange=True)
+        
+        if not all_times:
+            print(f"No keyframes found on curve {curve_name}")
+            return
+        
+        print(f"Original curve has {len(all_times)} keyframes from {min(all_times)} to {max(all_times)}")
+        
+        # First, ensure there's a keyframe at the end of the time range
+        # This will sample the curve value at that time and create a key
+        try:
+            cmds.setKeyframe(curve_attr, time=end_time)
+            print(f"Created keyframe at frame {end_time}")
+        except Exception as e:
+            print(f"Warning: Failed to set keyframe at end time: {e}")
+            return
+        
+        # Refresh the keyframe list to include the new key
+        all_times = cmds.keyframe(curve_name, query=True, timeChange=True)
+        
+        # Find keyframes that are at the end of time range and beyond
+        keys_to_copy = []
+        for time in all_times:
+            if time >= end_time:
+                keys_to_copy.append(int(time))
+        
+        if not keys_to_copy:
+            print("No keyframes found at or beyond the end of the time range")
+            return
+        
+        print(f"Found {len(keys_to_copy)} keyframes to copy: {keys_to_copy}")
+        
+        # Copy the selected keyframes directly from the attribute
+        try:
+            cmds.copyKey(curve_attr, time=(min(keys_to_copy), max(keys_to_copy)), includeUpperBound=True)
+            print("Copied keyframes")
+        except Exception as e:
+            print(f"Warning: Failed to copy keyframes: {e}")
+            return
+        
+        # Paste the keyframes at start time with merge option
+        try:
+            cmds.pasteKey(curve_attr, 
+                         time=(start_time, start_time),
+                         option="merge",
+                         copies=1,
+                         connect=False,
+                         timeOffset=0,
+                         floatOffset=0,
+                         valueOffset=0)
+            print(f"Pasted keyframes at current time {start_time}")
+        except Exception as e:
+            print(f"Warning: Failed to paste keyframes: {e}")
+            return
+        
+        # Remove keyframes beyond the end time
+        keys_beyond_range = []
+        all_times = cmds.keyframe(curve_name, query=True, timeChange=True)  # Refresh after paste
+        for time in all_times:
+            if time > end_time:
+                keys_beyond_range.append(time)
+        
+        if keys_beyond_range:
+            print(f"Removing keyframes beyond time range: {keys_beyond_range}")
+            try:
+                cmds.cutKey(curve_attr, time=(min(keys_beyond_range), max(keys_beyond_range)), clear=True)
+                print("Removed keyframes beyond time range")
+            except Exception as e:
+                print(f"Warning: Could not remove some keyframes: {e}")
+        
+        print(f"Successfully fitted curve {curve_attr} within time range")
 
 # =========================================================================
 # MAIN EXECUTION
