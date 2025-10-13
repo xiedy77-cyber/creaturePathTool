@@ -443,24 +443,24 @@ class CycleMakerUI:
         # Bulk editing controls positioned below headers
         cmds.rowLayout(numberOfColumns=4, columnWidth4=(120, 60, 60, 240), height=22)
         cmds.text(label="", width=120)  # Empty space above Object
-        cmds.intField(value=10, width=55, annotation="Set this time offset for all objects",
+        cmds.intField(value=1, width=55, annotation="Set this time offset for all objects",
                      changeCommand=self._set_all_copy_time_offsets)
         cmds.floatField(value=0.0, width=55, precision=2, annotation="Set this value offset for all objects",
                        changeCommand=self._set_all_copy_value_offsets)
         # Bulk checkboxes for channels
         cmds.rowLayout(numberOfColumns=6, columnWidth6=(35, 35, 35, 35, 35, 70))
-        self.copy_bulk_tx_chk = cmds.checkBox(label='', value=False,
+        self.copy_bulk_tx_chk = cmds.checkBox(label='', value=True,
                                              changeCommand=lambda x: self._set_all_copy_channels('tx', x))
-        self.copy_bulk_ty_chk = cmds.checkBox(label='', value=False,
+        self.copy_bulk_ty_chk = cmds.checkBox(label='', value=True,
                                              changeCommand=lambda x: self._set_all_copy_channels('ty', x))
-        self.copy_bulk_tz_chk = cmds.checkBox(label='', value=False,
+        self.copy_bulk_tz_chk = cmds.checkBox(label='', value=True,
                                              changeCommand=lambda x: self._set_all_copy_channels('tz', x))
-        self.copy_bulk_rx_chk = cmds.checkBox(label='', value=False,
+        self.copy_bulk_rx_chk = cmds.checkBox(label='', value=True,
                                              changeCommand=lambda x: self._set_all_copy_channels('rx', x))
-        self.copy_bulk_ry_chk = cmds.checkBox(label='', value=False,
+        self.copy_bulk_ry_chk = cmds.checkBox(label='', value=True,
                                              changeCommand=lambda x: self._set_all_copy_channels('ry', x))
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(35, 35))
-        self.copy_bulk_rz_chk = cmds.checkBox(label='', value=False,
+        self.copy_bulk_rz_chk = cmds.checkBox(label='', value=True,
                                              changeCommand=lambda x: self._set_all_copy_channels('rz', x))
         cmds.button(label="X", width=30, height=18,
                    command=self.clear_all_copy_objects,
@@ -1207,7 +1207,7 @@ class CycleMakerUI:
             if obj not in self.copy_offset_objects:
                 # Add object data
                 self.copy_offset_objects.append(obj)
-                self.copy_offset_time_offsets.append(10)  # Default time offset
+                self.copy_offset_time_offsets.append(1)    # Default time offset
                 self.copy_offset_value_offsets.append(0.0)  # Default value offset
                 
                 # Default channel settings - all enabled by default
@@ -3598,13 +3598,13 @@ class CycleMakerUI:
             cmds.warning("Need at least 2 objects in the list. First object is the source.")
             return
         
-        source_ctrl = self.copy_offset_objects[0]
         copied_count = 0
         
-        # Copy from source to each subsequent object with individual settings
+        # Copy sequentially: each object copies from the previous object in the list
         for i in range(1, len(self.copy_offset_objects)):
-            target_ctrl = self.copy_offset_objects[i]
-            time_offset = self.copy_offset_time_offsets[i] if i < len(self.copy_offset_time_offsets) else 10
+            source_ctrl = self.copy_offset_objects[i-1]  # Previous object as source
+            target_ctrl = self.copy_offset_objects[i]     # Current object as target
+            time_offset = self.copy_offset_time_offsets[i] if i < len(self.copy_offset_time_offsets) else 1
             value_offset = self.copy_offset_value_offsets[i] if i < len(self.copy_offset_value_offsets) else 0.0
             channel_settings = self.copy_offset_channel_settings[i] if i < len(self.copy_offset_channel_settings) else {}
             
@@ -3614,16 +3614,17 @@ class CycleMakerUI:
                 print(f"Skipping {target_ctrl} - no channels enabled")
                 continue
             
-            # Copy with individual object settings
+            # Copy with individual object settings from previous object
+            print(f"Copying from {source_ctrl} → {target_ctrl} (time offset: {time_offset}, value offset: {value_offset})")
             success = self.copy_animation_with_offset(source_ctrl, target_ctrl, channels, 
                                                     time_offset, value_offset)
             if success:
                 copied_count += 1
         
         if copied_count > 0:
-            cmds.inViewMessage(amg=f"Copied animation from {source_ctrl} to {copied_count} objects with individual offsets", 
+            cmds.inViewMessage(amg=f"Sequential copy completed: {copied_count} objects with cascading offsets", 
                               pos='midCenter', fade=True)
-            print(f"🎯 Copy with Offset completed: {source_ctrl} → {copied_count} objects")
+            print(f"🎯 Sequential Copy with Offset completed: {copied_count} objects in chain")
         else:
             cmds.warning("No animation was copied. Check object names and channel settings.")
 
