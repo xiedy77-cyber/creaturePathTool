@@ -3479,12 +3479,59 @@ class CycleMakerUI:
     # Actions: Spine inversion pass
     # ---------------------
 
+    def _detect_selected_keyframe_half(self):
+        """
+        Detect which half of the timeline the selected keyframes are in.
+        Returns: 'first', 'second', or 'default' (for whole curve/no selection)
+        """
+        try:
+            # Get selected keyframes from graph editor
+            selected_keys = cmds.keyframe(query=True, selected=True, timeChange=True) or []
+            
+            if not selected_keys:
+                # No keyframes selected, use default behavior
+                return 'default'
+            
+            # Get timeline range
+            start, end, mid = self._playback_cycle_range()
+            
+            # Analyze where most selected keys are located
+            first_half_count = 0
+            second_half_count = 0
+            
+            for key_time in selected_keys:
+                if key_time <= mid:
+                    first_half_count += 1
+                else:
+                    second_half_count += 1
+            
+            # Determine which half has more selected keys
+            if first_half_count > second_half_count:
+                return 'first'
+            elif second_half_count > first_half_count:
+                return 'second'
+            else:
+                # Equal or unclear, use default
+                return 'default'
+                
+        except Exception as e:
+            print(f"Error detecting keyframe selection: {e}")
+            return 'default'
+
     def invert_spine_channels(self, *_):
         """
-        Enforce half-cycle antiphase or standard cycle on spine/centerline channels over the playback range.
-        - rotateY, rotateZ, translateX, translateZ: antiphase (second half = negative of first half)
-        - rotateX, translateY: standard cycle (second half = copy of first half)
+        Intelligent spine channel cycling based on selected keyframes:
+        - If keys selected in first half: copy/invert first → second
+        - If keys selected in second half: copy/invert second → first  
+        - If whole curve or no selection: copy/invert first → second (default)
+        
+        Channel behavior:
+        - rotateY, rotateZ, translateX, translateZ: antiphase (inverted copy)
+        - rotateX, translateY: standard cycle (direct copy)
         """
+        # Detect which half of timeline has selected keyframes
+        keyframe_half = self._detect_selected_keyframe_half()
+        
         # Check for selected objects first
         sel = cmds.ls(selection=True) or []
         spine_controls = self._get_spine_controls()
@@ -3492,7 +3539,7 @@ class CycleMakerUI:
         if sel:
             # Use selected objects (work with any selection, not just spine controls list)
             print(f"Processing selected objects for spine cycling: {sel}")
-            # Note: We'll process all selected objects, even if not in spine controls list
+            print(f"Keyframe selection detected in: {keyframe_half} half")
         else:
             # Fall back to all spine controls if nothing selected
             if not spine_controls:
@@ -3500,6 +3547,7 @@ class CycleMakerUI:
                 return
             sel = spine_controls
             print(f"No objects selected. Processing all spine controls: {sel}")
+            print(f"Keyframe selection detected in: {keyframe_half} half")
             
         try:
             invert_y = cmds.checkBox(self.invert_y_chk, query=True, value=True)
@@ -3524,8 +3572,7 @@ class CycleMakerUI:
 
         count = 0
         for node in sel:
-            # Node is already validated to be in spine_controls
-            # Antiphase channels
+            # Process antiphase channels (with inversion)
             for attr in antiphase_attrs:
                 plug = f"{node}.{attr}"
                 try:
@@ -3535,13 +3582,25 @@ class CycleMakerUI:
                     continue
                 if not self._anim_curve_for_attr(plug):
                     continue
-                self._rebuild_second_half_antiphase(plug, start, mid, end)
+                
+                # Apply directional cycling based on keyframe selection
+                if keyframe_half == 'second':
+                    # Copy from second half to first half (inverted)
+                    self._rebuild_first_half_antiphase(plug, start, mid, end)
+                    direction_msg = "second → first (inverted)"
+                else:
+                    # Default: Copy from first half to second half (inverted)
+                    self._rebuild_second_half_antiphase(plug, start, mid, end)
+                    direction_msg = "first → second (inverted)"
+                
+                print(f"Applied antiphase to {plug}: {direction_msg}")
+                
                 # Apply curve fitting if enabled in settings
                 if self.fit_curve_default:
-                    print(f"DEBUG: Applying curve fitting to {plug}")
                     self.contain_curve_within_time_range(plug)
                 count += 1
-            # Standard cycle channels
+                
+            # Process standard cycle channels (direct copy)
             for attr in standard_attrs:
                 plug = f"{node}.{attr}"
                 try:
@@ -3551,10 +3610,21 @@ class CycleMakerUI:
                     continue
                 if not self._anim_curve_for_attr(plug):
                     continue
-                self._rebuild_second_half_standard(plug, start, mid, end)
+                
+                # Apply directional cycling based on keyframe selection
+                if keyframe_half == 'second':
+                    # Copy from second half to first half (direct)
+                    self._rebuild_first_half_standard(plug, start, mid, end)
+                    direction_msg = "second → first (direct)"
+                else:
+                    # Default: Copy from first half to second half (direct)
+                    self._rebuild_second_half_standard(plug, start, mid, end)
+                    direction_msg = "first → second (direct)"
+                
+                print(f"Applied standard cycle to {plug}: {direction_msg}")
+                
                 # Apply curve fitting if enabled in settings
                 if self.fit_curve_default:
-                    print(f"DEBUG: Applying curve fitting to {plug}")
                     self.contain_curve_within_time_range(plug)
                 count += 1
 
@@ -3629,6 +3699,146 @@ class CycleMakerUI:
             except Exception:
                 pass
 
+    def _rebuild_first_half_antiphase(self, plug, start, mid, end):
+        """
+        Make [start,mid] equal to the negative of [mid,end] for the given plug.
+        (Reverse direction antiphase - copy from second half to first half)
+        """
+        # Anchor values
+        try:
+            v_end = cmds.getAttr(plug, time=end)
+        except Exception:
+            v_end = None
+        if not self._has_key_at(plug, end):
+            self._ensure_key(plug, end, v_end)
+        if not self._has_key_at(plug, mid):
+            # Create a temp key at mid to aid paste alignment
+            self._ensure_key(plug, mid, v_end if v_end is not None else None)
+
+        # Unlock if needed
+        relock = False
+        try:
+            if cmds.getAttr(plug, lock=True):
+                relock = True
+                cmds.setAttr(plug, lock=False)
+        except Exception:
+            pass
+
+        # Clear first half
+        try:
+            cmds.cutKey(plug, time=(start, mid))
+        except Exception:
+            pass
+
+        # Copy second half [mid, end] and paste to first half [start, mid]
+        try:
+            cmds.copyKey(plug, time=(mid, end), includeUpperBound=True)
+        except Exception as e:
+            cmds.warning(f"copyKey failed on {plug} [{mid},{end}]: {e}")
+            return
+        try:
+            cmds.pasteKey(plug, option='merge', timeOffset=(start - mid))
+        except Exception as e:
+            try:
+                cmds.pasteKey(plug, option='merge')
+            except Exception as e2:
+                cmds.warning(f"pasteKey failed on {plug}: {e2}")
+                return
+
+        # Scale all keys in first half by -1 (invert)
+        try:
+            cmds.scaleKey(plug, time=(start, mid), valueScale=-1, includeUpperBound=False)
+        except Exception as e:
+            cmds.warning(f"scaleKey failed on {plug}: {e}")
+
+        # Enforce anchors: start==end, mid==end
+        try:
+            if v_end is None:
+                v_end = cmds.getAttr(plug, time=end)
+        except Exception:
+            v_end = 0.0
+        self._ensure_key(plug, start, float(v_end))
+        self._ensure_key(plug, mid, float(v_end))
+
+        # Apply tangent smoothing for spine antiphase cycles
+        self._smooth_spine_transitions(plug, start, mid, end, is_antiphase=True)
+        
+        # Apply cycle infinity for seamless looping
+        self._apply_cycle_infinity(plug)
+
+        # Relock
+        if relock:
+            try:
+                cmds.setAttr(plug, lock=True)
+            except Exception:
+                pass
+
+    def _rebuild_first_half_standard(self, plug, start, mid, end):
+        """
+        Make [start,mid] a standard cycle (copy of [mid,end]) for the given plug.
+        (Reverse direction standard - copy from second half to first half)
+        """
+        # Anchor values
+        try:
+            v_end = cmds.getAttr(plug, time=end)
+        except Exception:
+            v_end = None
+        if not self._has_key_at(plug, end):
+            self._ensure_key(plug, end, v_end)
+        if not self._has_key_at(plug, mid):
+            self._ensure_key(plug, mid, v_end if v_end is not None else None)
+
+        # Unlock if needed
+        relock = False
+        try:
+            if cmds.getAttr(plug, lock=True):
+                relock = True
+                cmds.setAttr(plug, lock=False)
+        except Exception:
+            pass
+
+        # Clear first half
+        try:
+            cmds.cutKey(plug, time=(start, mid))
+        except Exception:
+            pass
+
+        # Copy second half [mid, end] and paste to first half [start, mid]
+        try:
+            cmds.copyKey(plug, time=(mid, end), includeUpperBound=True)
+        except Exception as e:
+            cmds.warning(f"copyKey failed on {plug} [{mid},{end}]: {e}")
+            return
+        try:
+            cmds.pasteKey(plug, option='merge', timeOffset=(start - mid))
+        except Exception as e:
+            try:
+                cmds.pasteKey(plug, option='merge')
+            except Exception as e2:
+                cmds.warning(f"pasteKey failed on {plug}: {e2}")
+                return
+
+        # Enforce anchors: start==end, mid==end
+        try:
+            if v_end is None:
+                v_end = cmds.getAttr(plug, time=end)
+        except Exception:
+            v_end = 0.0
+        self._ensure_key(plug, start, float(v_end))
+        self._ensure_key(plug, mid, float(v_end))
+
+        # Apply tangent smoothing for spine standard cycles
+        self._smooth_spine_transitions(plug, start, mid, end, is_antiphase=False)
+        
+        # Apply cycle infinity for seamless looping
+        self._apply_cycle_infinity(plug)
+
+        # Relock
+        if relock:
+            try:
+                cmds.setAttr(plug, lock=True)
+            except Exception:
+                pass
 
     # =========================================================================
     # SECTION 10: COPY WITH OFFSET FUNCTIONALITY
