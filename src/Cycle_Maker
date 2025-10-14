@@ -106,6 +106,12 @@ class CycleMakerUI:
         self.time_offset_copy_field = None
         self.value_offset_copy_field = None
         
+        # Settings/Preferences
+        self.forward_direction = 'Z'  # Default forward direction (X, Y, or Z)
+        self.forward_rotation_axis = 'X'  # Default spine rotation axis (X, Y, or Z)
+        self.fit_curve_default = True  # Default state for "Fit Curve to Timeline"
+        self.auto_detect_inversions = True  # Default state for auto-detecting mirrored axis alignments
+        
         self.setup_ui()
 
     # =========================================================================
@@ -115,7 +121,14 @@ class CycleMakerUI:
     def setup_ui(self):
         if cmds.window(self.window, exists=True):
             cmds.deleteUI(self.window)
-        self.window = cmds.window(self.window, title="Cycle Maker Tool", widthHeight=(520, 450))
+        self.window = cmds.window(self.window, title="Cycle Maker Tool", widthHeight=(520, 450), menuBar=True)
+        
+        # Create menu bar
+        cmds.menu(label='File')
+        cmds.menuItem(label='Settings...', command=self.open_settings_dialog)
+        cmds.menuItem(divider=True)
+        cmds.menuItem(label='Save Presets', command=self.save_presets)
+        cmds.menuItem(label='Load Presets', command=self.load_presets)
         
         # Create main tab layout
         main_tabs = cmds.tabLayout(innerMarginWidth=5, innerMarginHeight=5)
@@ -144,29 +157,49 @@ class CycleMakerUI:
                         backgroundColor=(0.45, 0.42, 0.38))  # Muted orange for main sections
         cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
         
-        # Headers row - channel labels only (no offset)
-        cmds.rowLayout(numberOfColumns=6, columnWidth6=(270, 20, 20, 20, 20, 60), height=22)
-        cmds.text(label="", width=270)  # Empty space above controls section
-        cmds.text(label="TX", align="center", font="smallPlainLabelFont", height=22)
-        cmds.text(label="TY", align="center", font="smallPlainLabelFont", height=22)
-        cmds.text(label="TZ", align="center", font="smallPlainLabelFont", height=22)
-        cmds.text(label="RX", align="center", font="smallPlainLabelFont", height=22)
-        cmds.text(label="RY    RZ", align="center", font="smallPlainLabelFont", height=22)
+        # Headers row - matching the individual control pair layout structure
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(320, 120), height=22)
+        # Controls header section
+        cmds.rowLayout(numberOfColumns=3, columnWidth3=(135, 50, 135))
+        cmds.text(label="Left Control", align="center", font="boldLabelFont", height=20,
+                 backgroundColor=(0.4, 0.45, 0.48))
+        cmds.text(label="", width=50)  # Empty space above swap button
+        cmds.text(label="Right Control", align="center", font="boldLabelFont", height=20,
+                 backgroundColor=(0.4, 0.45, 0.48))
+        cmds.setParent('..')  # controls header
+        # Channel headers section - matching individual row structure
+        cmds.rowLayout(numberOfColumns=5, columnWidth5=(20, 20, 20, 20, 60))
+        cmds.text(label="TX", align="center", font="smallPlainLabelFont", height=20,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.text(label="TY", align="center", font="smallPlainLabelFont", height=20,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.text(label="TZ", align="center", font="smallPlainLabelFont", height=20,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.text(label="RX", align="center", font="smallPlainLabelFont", height=20,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.rowLayout(numberOfColumns=3, columnWidth3=(20, 20, 20))
+        cmds.text(label="RY", align="center", font="smallPlainLabelFont", height=20,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.text(label="RZ", align="center", font="smallPlainLabelFont", height=20,
+                 backgroundColor=(0.4, 0.4, 0.4))
+        cmds.text(label="", width=20)  # Space above remove button
+        cmds.setParent('..')  # RY RZ space layout
+        cmds.setParent('..')  # channel headers
         cmds.setParent('..')  # headers row
         
-        # Bulk editing controls with labels and controls aligned - using nested layouts (no offset)
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(270, 128), height=22)
-        # First part: Labels and swap button
-        cmds.rowLayout(numberOfColumns=3, columnWidth3=(110, 50, 110))
-        cmds.text(label="Left Control", align="center", font="boldLabelFont", height=20)
+        # Bulk editing controls - using EXACT same structure as individual rows
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(320, 120), height=22)
+        # Controls section - same structure as individual pairs
+        cmds.rowLayout(numberOfColumns=3, columnWidth3=(135, 50, 135))
+        cmds.text(label="Bulk Operations", align="center", font="boldLabelFont", height=20)
         cmds.button(label="⇄", width=50, height=20,
                    backgroundColor=(0.6, 0.4, 0.6),
                    annotation="Swap all left/right control pairs",
                    command=self._swap_all_control_pairs)
-        cmds.text(label="Right Control", align="center", font="boldLabelFont", height=20)
-        cmds.setParent('..')  # labels and swap
-        # Second part: Channel checkboxes only (no offset field)
-        cmds.rowLayout(numberOfColumns=5, columnWidth5=(20, 20, 20, 20, 68))
+        cmds.text(label="(Apply to All)", align="center", font="boldLabelFont", height=20)
+        cmds.setParent('..')  # bulk controls section
+        # Checkboxes section - matching individual row structure exactly
+        cmds.rowLayout(numberOfColumns=5, columnWidth5=(20, 20, 20, 20, 60))
         self.bulk_tx_chk = cmds.checkBox(label='', value=False, height=20,
                                         changeCommand=lambda x: self._set_all_inversions('tx', x))
         self.bulk_ty_chk = cmds.checkBox(label='', value=False, height=20,
@@ -185,7 +218,7 @@ class CycleMakerUI:
                    backgroundColor=(0.7, 0.5, 0.5),
                    annotation="Clear all control pairs")
         cmds.setParent('..')  # RY RZ X layout
-        cmds.setParent('..')  # offset/checkboxes
+        cmds.setParent('..')  # checkboxes section  
         cmds.setParent('..')  # bulk controls row
         
         # Scrollable area for control pairs with improved styling
@@ -205,7 +238,7 @@ class CycleMakerUI:
                       columnAttach=[(1, 'both', 2), (2, 'both', 2)])
         cmds.button(label="Add Selected", command=self.add_selected_controls, height=28,
                    backgroundColor=(0.42, 0.48, 0.42))  # Muted green for add actions
-        cmds.button(label="Copy Left <--> Right", command=self.copy_with_direction, height=28,
+        cmds.button(label="Copy Across", command=self.copy_with_direction, height=28,
                    backgroundColor=(0.42, 0.48, 0.42))  # Muted green for primary action
         cmds.setParent('..')  # rowLayout
         
@@ -252,43 +285,11 @@ class CycleMakerUI:
         cmds.separator(height=15, style="in")
         
         # Auto-detection options (moved to bottom)
-        cmds.frameLayout(label="Auto-Detect Axis Conventions", collapsable=True, collapse=False, 
-                        marginHeight=8, marginWidth=8, borderVisible=True,
-                        backgroundColor=(0.45, 0.45, 0.45))  # Neutral gray for auto-detect
-        cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
-        self.auto_detect_checkbox = cmds.checkBox(label="Auto-Detect Axis Conventions", value=True,
-                                                 annotation="Automatically analyze rig during copy operations")
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1,
-                      columnAttach=[(1, 'both', 2), (2, 'both', 2)])
-        cmds.button(label="Test Detection", command=self.test_axis_detection, height=22,
-                   backgroundColor=(0.45, 0.45, 0.45),
-                   annotation="Preview what auto-detection would find")
-        cmds.button(label="Apply Detection", command=self.apply_axis_detection, height=22,
-                   backgroundColor=(0.42, 0.48, 0.42),
-                   annotation="Apply auto-detection results to inversion checkboxes")
-        cmds.setParent('..')  # rowLayout
-        cmds.setParent('..')  # columnLayout
-        cmds.setParent('..')  # frameLayout
+
         
-        # Fit Curve to Timeline option
-        cmds.separator(height=10)
-        cmds.frameLayout(label="Animation Curve Options", collapsable=True, collapse=False, 
-                        marginHeight=8, marginWidth=8, borderVisible=True,
-                        backgroundColor=(0.42, 0.48, 0.42))  # Muted green for curve options
-        cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
-        self.fit_curve_checkbox = cmds.checkBox(label="Fit Curve to Timeline", value=False,
-                                               annotation="Automatically fit animation curves within the timeline range after copy operations")
-        cmds.setParent('..')  # columnLayout
-        cmds.setParent('..')  # frameLayout
+
         
-        cmds.separator(height=15, style="in")
-        cmds.rowLayout(numberOfColumns=2, columnWidth2=(200, 200), adjustableColumn=1,
-                      columnAttach=[(1, 'both', 2), (2, 'both', 2)])
-        cmds.button(label="Load Presets", command=self.load_presets, height=30,
-                   backgroundColor=(0.38, 0.45, 0.52))  # Muted blue for presets
-        cmds.button(label="Save Presets", command=self.save_presets, height=30,
-                   backgroundColor=(0.52, 0.45, 0.38))  # Muted orange for save
-        cmds.setParent('..')
+
     
     def _refresh_control_pairs_ui(self):
         """Refresh the dynamic control pairs UI."""
@@ -320,11 +321,13 @@ class CycleMakerUI:
         """Create a single control pair row with inversion checkboxes (no offset field)."""
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(320, 120))
         
-        # Controls section with proper spacing and margins
-        cmds.rowLayout(numberOfColumns=5, columnWidth5=(120, 15, 50, 15, 120))
-        # Left control (read-only text)
-        cmds.text(label=left_ctrl, align="center")
-        cmds.text(label="", width=15)  # Spacer
+        # Controls section - matching bulk operations structure exactly
+        cmds.rowLayout(numberOfColumns=3, columnWidth3=(135, 50, 135))
+        # Left control (read-only text) - truncate if too long
+        left_display = left_ctrl.split(':')[-1] if ':' in left_ctrl else left_ctrl
+        if len(left_display) > 18:
+            left_display = left_display[:15] + "..."
+        cmds.text(label=left_display, align="center", annotation=left_ctrl)
         
         # Direction swap button (shows bidirectional swap and allows swapping)
         cmds.button(label="⇄", width=50, height=20,
@@ -332,10 +335,12 @@ class CycleMakerUI:
                    annotation="Click to swap left/right controls",
                    command=lambda x, idx=index: self._swap_control_pair(idx))
         
-        cmds.text(label="", width=15)  # Spacer
-        # Right control (read-only text)  
-        cmds.text(label=right_ctrl, align="center")
-        cmds.setParent('..')  # controls sub-layout
+        # Right control (read-only text) - truncate if too long
+        right_display = right_ctrl.split(':')[-1] if ':' in right_ctrl else right_ctrl
+        if len(right_display) > 18:
+            right_display = right_display[:15] + "..."
+        cmds.text(label=right_display, align="center", annotation=right_ctrl)
+        cmds.setParent('..')  # controls section
         
         # Inversion checkboxes only (no offset field)
         cmds.rowLayout(numberOfColumns=5, columnWidth5=(20, 20, 20, 20, 60))
@@ -511,27 +516,102 @@ class CycleMakerUI:
         if detected_prefix != current_prefix or current_prefix == "tigerA_rigMain_01_:":
             cmds.textField(self.prefix_field, edit=True, text=detected_prefix)
         
-        for ctrl in sel:
+        # Process selections in pairs based on selection order
+        if len(sel) == 1:
+            # Single selection - selected control becomes SOURCE (left side), find its opposite as TARGET
+            ctrl = sel[0]
             ctrl_short = ctrl.split(':')[-1] if ':' in ctrl else ctrl
+            
+            # Try to find opposite control
+            opposite_ctrl = None
             if self.is_left(ctrl_short):
-                # Find the opposite control using full name (with namespace)
-                right_ctrl = self.get_other_side(ctrl, left_to_right=True)  # Use full name
-                if ctrl not in self.left_controls and right_ctrl and right_ctrl not in self.right_controls:
-                    self.left_controls.append(ctrl)  # Store full name
-                    self.right_controls.append(right_ctrl)  # Store full opposite name
-
+                opposite_ctrl = self.get_other_side(ctrl, left_to_right=True)
             elif self.is_right(ctrl_short):
-                # Find the opposite control using full name (with namespace)
-                left_ctrl = self.get_other_side(ctrl, left_to_right=False)  # Use full name
-                if ctrl not in self.right_controls and left_ctrl and left_ctrl not in self.left_controls:
-                    self.right_controls.append(ctrl)  # Store full name
-                    self.left_controls.append(left_ctrl)  # Store full opposite name
-
+                opposite_ctrl = self.get_other_side(ctrl, left_to_right=False)
+            
+            if opposite_ctrl:
+                # Check if either control already exists in a pair
+                existing_pair_index = self._find_existing_pair(ctrl, opposite_ctrl)
+                
+                if existing_pair_index is not None:
+                    # Replace existing pair with new ordering
+                    self.left_controls[existing_pair_index] = ctrl
+                    self.right_controls[existing_pair_index] = opposite_ctrl
+                    print(f"Replaced pair: {ctrl} (source) -> {opposite_ctrl} (target)")
+                else:
+                    # Add new pair
+                    self.left_controls.append(ctrl)
+                    self.right_controls.append(opposite_ctrl)
+                    print(f"Added pair: {ctrl} (source) -> {opposite_ctrl} (target)")
             else:
-                cmds.warning(f"Control name does not match left/right pattern: {ctrl_short}")
+                cmds.warning(f"Cannot find opposite control for: {ctrl_short}")
+                
+        elif len(sel) >= 2:
+            # Multiple selections - use selection order to determine source/target pairs
+            print(f"Processing {len(sel)} selected controls in selection order...")
+            
+            # Process in pairs: 1st->2nd, 3rd->4th, etc.
+            for i in range(0, len(sel), 2):
+                if i + 1 < len(sel):
+                    source_ctrl = sel[i]      # First selected = source (left side)
+                    target_ctrl = sel[i + 1]  # Second selected = target (right side)
+                    
+                    # Check if either control already exists in a pair
+                    existing_pair_index = self._find_existing_pair(source_ctrl, target_ctrl)
+                    
+                    if existing_pair_index is not None:
+                        # Replace existing pair with new ordering
+                        self.left_controls[existing_pair_index] = source_ctrl
+                        self.right_controls[existing_pair_index] = target_ctrl
+                        print(f"Replaced pair: {source_ctrl} (source) -> {target_ctrl} (target)")
+                    else:
+                        # Add new pair
+                        self.left_controls.append(source_ctrl)
+                        self.right_controls.append(target_ctrl)
+                        print(f"Added pair: {source_ctrl} (source) -> {target_ctrl} (target)")
+                else:
+                    # Odd number - selected control becomes SOURCE (left side), find its opposite as TARGET
+                    ctrl = sel[i]
+                    ctrl_short = ctrl.split(':')[-1] if ':' in ctrl else ctrl
+                    
+                    # Try to find opposite control
+                    opposite_ctrl = None
+                    if self.is_left(ctrl_short):
+                        opposite_ctrl = self.get_other_side(ctrl, left_to_right=True)
+                    elif self.is_right(ctrl_short):
+                        opposite_ctrl = self.get_other_side(ctrl, left_to_right=False)
+                    
+                    if opposite_ctrl:
+                        # Check if either control already exists in a pair
+                        existing_pair_index = self._find_existing_pair(ctrl, opposite_ctrl)
+                        
+                        if existing_pair_index is not None:
+                            # Replace existing pair with new ordering
+                            self.left_controls[existing_pair_index] = ctrl
+                            self.right_controls[existing_pair_index] = opposite_ctrl
+                            print(f"Replaced pair (auto-detected): {ctrl} (source) -> {opposite_ctrl} (target)")
+                        else:
+                            # Add new pair
+                            self.left_controls.append(ctrl)
+                            self.right_controls.append(opposite_ctrl)
+                            print(f"Added pair (auto-detected): {ctrl} (source) -> {opposite_ctrl} (target)")
+                    else:
+                        cmds.warning(f"Cannot find opposite control for: {ctrl_short}")
         
         # Refresh the UI to show new control pairs
         self._refresh_control_pairs_ui()
+
+    def _find_existing_pair(self, ctrl1, ctrl2):
+        """Find if either ctrl1 or ctrl2 already exists in the control pairs.
+        Returns the index of the existing pair, or None if not found."""
+        for i in range(len(self.left_controls)):
+            left_ctrl = self.left_controls[i]
+            right_ctrl = self.right_controls[i]
+            
+            # Check if either control is already in this pair
+            if ctrl1 == left_ctrl or ctrl1 == right_ctrl or ctrl2 == left_ctrl or ctrl2 == right_ctrl:
+                return i
+        return None
 
     def remove_selected_controls(self, *_):
         # Note: Individual remove buttons are now handled by _remove_control_pair method
@@ -2762,8 +2842,8 @@ class CycleMakerUI:
                 self._smooth_cycle_transitions(target_attr)
                 self._apply_cycle_infinity(target_attr)
                 
-                # Apply curve fitting if checkbox is enabled
-                if cmds.checkBox(self.fit_curve_checkbox, query=True, value=True):
+                # Apply curve fitting if enabled in settings
+                if self.fit_curve_default:
                     print(f"DEBUG: Applying curve fitting to {target_attr}")
                     self.contain_curve_within_time_range(target_attr)
                 
@@ -3454,8 +3534,8 @@ class CycleMakerUI:
                 if not self._anim_curve_for_attr(plug):
                     continue
                 self._rebuild_second_half_antiphase(plug, start, mid, end)
-                # Apply curve fitting if checkbox is enabled
-                if cmds.checkBox(self.fit_curve_checkbox, query=True, value=True):
+                # Apply curve fitting if enabled in settings
+                if self.fit_curve_default:
                     print(f"DEBUG: Applying curve fitting to {plug}")
                     self.contain_curve_within_time_range(plug)
                 count += 1
@@ -3470,8 +3550,8 @@ class CycleMakerUI:
                 if not self._anim_curve_for_attr(plug):
                     continue
                 self._rebuild_second_half_standard(plug, start, mid, end)
-                # Apply curve fitting if checkbox is enabled
-                if cmds.checkBox(self.fit_curve_checkbox, query=True, value=True):
+                # Apply curve fitting if enabled in settings
+                if self.fit_curve_default:
                     print(f"DEBUG: Applying curve fitting to {plug}")
                     self.contain_curve_within_time_range(plug)
                 count += 1
@@ -3707,8 +3787,8 @@ class CycleMakerUI:
                 self._smooth_cycle_transitions(target_attr)
                 self._apply_cycle_infinity(target_attr)
                 
-                # Apply curve fitting if checkbox is enabled
-                if cmds.checkBox(self.fit_curve_checkbox, query=True, value=True):
+                # Apply curve fitting if enabled in settings
+                if self.fit_curve_default:
                     print(f"DEBUG: Applying curve fitting to {target_attr}")
                     self.contain_curve_within_time_range(target_attr)
                 
@@ -3819,9 +3899,48 @@ class CycleMakerUI:
 
             
     def copy_with_direction(self, *_):
-        """Copy animation from left controls to right controls (now individual pairs control direction)."""
+        """Copy animation based on current selection - left controls copy to right, right controls copy to left."""
         try:
-            self.copy_left_to_right()
+            # Get current selection
+            selected_objects = cmds.ls(selection=True, type='transform')
+            
+            if not selected_objects:
+                # No selection - default to left to right
+                print("No objects selected. Defaulting to left-to-right copy.")
+                self.copy_left_to_right()
+                return
+            
+            # Analyze selection to determine direction
+            left_selected = 0
+            right_selected = 0
+            
+            for obj in selected_objects:
+                if obj in self.left_controls:
+                    left_selected += 1
+                elif obj in self.right_controls:
+                    right_selected += 1
+                else:
+                    # Check if it's a left or right control by name patterns
+                    if self.is_left(obj):
+                        left_selected += 1
+                    elif self.is_right(obj):
+                        right_selected += 1
+            
+            # Determine direction based on selection
+            if left_selected > right_selected:
+                print(f"Left controls selected ({left_selected}). Copying left to right.")
+                self.copy_left_to_right()
+            elif right_selected > left_selected:
+                print(f"Right controls selected ({right_selected}). Copying right to left.")
+                self.copy_right_to_left()
+            elif left_selected == right_selected and left_selected > 0:
+                print(f"Equal left/right selection ({left_selected} each). Defaulting to left-to-right copy.")
+                self.copy_left_to_right()
+            else:
+                # No recognizable left/right controls - default to left to right
+                print("No recognizable left/right controls in selection. Defaulting to left-to-right copy.")
+                self.copy_left_to_right()
+                
         except Exception as e:
             cmds.warning(f"Copy with direction failed: {e}")
 
@@ -3918,6 +4037,107 @@ class CycleMakerUI:
                 print(f"Warning: Could not remove some keyframes: {e}")
         
         print(f"Successfully fitted curve {curve_attr} within time range")
+
+    def open_settings_dialog(self, *_):
+        """Open the settings dialog window."""
+        settings_window = "CycleMakerSettings"
+        
+        # Close existing settings window if it exists
+        if cmds.window(settings_window, exists=True):
+            cmds.deleteUI(settings_window, window=True)
+        
+        # Create settings window
+        cmds.window(settings_window, title="Cycle Maker Settings", widthHeight=(400, 300))
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=10, columnOffset=['both', 10])
+        
+        cmds.text(label="Cycle Maker Settings", font="boldLabelFont", height=30)
+        cmds.separator(height=10, style="in")
+        
+        # Character Setup Settings
+        cmds.frameLayout(label="Character Setup", collapsable=False, 
+                        marginHeight=8, marginWidth=8, borderVisible=True,
+                        backgroundColor=(0.45, 0.42, 0.38))
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=8)
+        
+        # Forward Direction dropdown
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(150, 200))
+        cmds.text(label="Forward Direction:", align="left")
+        forward_dropdown = cmds.optionMenu()
+        cmds.menuItem(label='X')
+        cmds.menuItem(label='Y') 
+        cmds.menuItem(label='Z')
+        cmds.optionMenu(forward_dropdown, edit=True, value=self.forward_direction)
+        cmds.setParent('..')
+        
+        # Forward Rotation Axis dropdown
+        cmds.rowLayout(numberOfColumns=2, columnWidth2=(150, 200))
+        cmds.text(label="Forward Rotation Axis:", align="left")
+        rotation_dropdown = cmds.optionMenu()
+        cmds.menuItem(label='X')
+        cmds.menuItem(label='Y')
+        cmds.menuItem(label='Z')
+        cmds.optionMenu(rotation_dropdown, edit=True, value=self.forward_rotation_axis)
+        cmds.setParent('..')
+        
+        cmds.setParent('..')  # columnLayout
+        cmds.setParent('..')  # frameLayout
+        
+        # Animation Options
+        cmds.frameLayout(label="Animation Options", collapsable=False, 
+                        marginHeight=8, marginWidth=8, borderVisible=True,
+                        backgroundColor=(0.42, 0.48, 0.42))
+        cmds.columnLayout(adjustableColumn=True, rowSpacing=8)
+        
+        # Fit Curve to Timeline checkbox
+        fit_curve_checkbox = cmds.checkBox(label="Fit Curve to Timeline (Default)", 
+                                         value=self.fit_curve_default,
+                                         annotation="Default state for automatically fitting animation curves within timeline range")
+        
+        # Auto-detect inversions checkbox
+        auto_detect_checkbox = cmds.checkBox(label="Autodetect Mirrored Axis Alignments", 
+                                           value=self.auto_detect_inversions,
+                                           annotation="Automatically detect which axes should be inverted for left/right mirroring")
+        
+        cmds.setParent('..')  # columnLayout  
+        cmds.setParent('..')  # frameLayout
+        
+        cmds.separator(height=15, style="in")
+        
+        # Buttons
+        cmds.rowLayout(numberOfColumns=3, columnWidth3=(120, 120, 120))
+        cmds.button(label="Apply", width=110, height=30,
+                   backgroundColor=(0.42, 0.48, 0.42),
+                   command=lambda x: self._apply_settings(forward_dropdown, rotation_dropdown, fit_curve_checkbox, auto_detect_checkbox, settings_window))
+        cmds.button(label="Cancel", width=110, height=30,
+                   backgroundColor=(0.48, 0.42, 0.42),
+                   command=lambda x: cmds.deleteUI(settings_window, window=True))
+        cmds.button(label="Reset to Defaults", width=110, height=30,
+                   backgroundColor=(0.48, 0.45, 0.42),
+                   command=lambda x: self._reset_settings_to_defaults(forward_dropdown, rotation_dropdown, fit_curve_checkbox, auto_detect_checkbox))
+        cmds.setParent('..')
+        
+        cmds.setParent('..')  # main columnLayout
+        cmds.showWindow(settings_window)
+
+    def _apply_settings(self, forward_dropdown, rotation_dropdown, fit_curve_checkbox, auto_detect_checkbox, settings_window):
+        """Apply the settings from the dialog."""
+        self.forward_direction = cmds.optionMenu(forward_dropdown, query=True, value=True)
+        self.forward_rotation_axis = cmds.optionMenu(rotation_dropdown, query=True, value=True)  
+        self.fit_curve_default = cmds.checkBox(fit_curve_checkbox, query=True, value=True)
+        self.auto_detect_inversions = cmds.checkBox(auto_detect_checkbox, query=True, value=True)
+        
+        print(f"Settings applied: Forward={self.forward_direction}, Rotation={self.forward_rotation_axis}, FitCurve={self.fit_curve_default}, AutoDetect={self.auto_detect_inversions}")
+        cmds.deleteUI(settings_window, window=True)
+        
+        # Show confirmation
+        cmds.inViewMessage(amg="Settings applied successfully", pos='midCenter', fade=True)
+
+    def _reset_settings_to_defaults(self, forward_dropdown, rotation_dropdown, fit_curve_checkbox, auto_detect_checkbox):
+        """Reset settings to default values."""
+        cmds.optionMenu(forward_dropdown, edit=True, value='Z')
+        cmds.optionMenu(rotation_dropdown, edit=True, value='X')
+        cmds.checkBox(fit_curve_checkbox, edit=True, value=True)
+        cmds.checkBox(auto_detect_checkbox, edit=True, value=True)
 
 # =========================================================================
 # MAIN EXECUTION

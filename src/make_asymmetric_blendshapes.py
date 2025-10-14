@@ -1,17 +1,25 @@
 """
 Make Asymmetric Blendshapes Script
 
-This script takes a base mesh and a symmetrical blendshape source and creates
-two asymmetric versions - one with left side modified, one with right side modified.
+This script takes a base mesh and multiple symmetrical blendshape sources and creates
+asymmetric versions - one with left side modified, one with right side modified.
 
 Usage:
     - Select base mesh (e.g., pSphere1) first
-    - Select blendshape source (e.g., pSphere2) second
+    - Select all blendshape sources (e.g., pSphere2, pSphere3, pSphere4) 
     - Run the script
 
 The script will create:
-    - pSphere2_Left: Base mesh on right side, blendshape on left side
-    - pSphere2_Right: Base mesh on left side, blendshape on right side
+    - pSphere2_Left, pSphere2_Right: Base mesh on opposite side, blendshape on primary side
+    - pSphere3_Left, pSphere3_Right: Same pattern for each blendshape source
+    - Original symmetric blendshapes are deleted by default (optional)
+
+Features:
+    - Multiple blendshape processing in one operation
+    - Smooth blending with configurable transition zones
+    - Automatic positioning to avoid overlaps
+    - Optional deletion of original symmetric sources
+    - Professional UI with presets and visualization tools
 """
 
 import maya.cmds as cmds
@@ -118,7 +126,7 @@ def calculate_blend_weight(x_position, blend_zone_width=0.5, side='left'):
             return (-x_position + blend_zone_width) / (2 * blend_zone_width)
 
 
-def create_asymmetric_blendshapes(base_mesh, blendshape_source, blend_zone_width=0.5):
+def create_asymmetric_blendshapes(base_mesh, blendshape_source, blend_zone_width=0.5, position_offset=0):
     """
     Create two asymmetric blendshapes from a base mesh and symmetric blendshape source.
     Uses smooth blending to transition between base and blendshape sides.
@@ -127,6 +135,7 @@ def create_asymmetric_blendshapes(base_mesh, blendshape_source, blend_zone_width
         base_mesh (str): Name of the base mesh
         blendshape_source (str): Name of the blendshape source mesh
         blend_zone_width (float): Width of the blend zone for smooth transition
+        position_offset (int): Z-axis offset for positioning multiple blendshapes
     
     Returns:
         tuple: (left_mesh_name, right_mesh_name)
@@ -189,8 +198,8 @@ def create_asymmetric_blendshapes(base_mesh, blendshape_source, blend_zone_width
         set_vertex_position(right_mesh, vertex_id, right_blended_pos)
     
     # Move the new meshes to avoid overlapping
-    cmds.move(3, 0, 0, left_mesh, relative=True)
-    cmds.move(-3, 0, 0, right_mesh, relative=True)
+    cmds.move(3, 0, position_offset, left_mesh, relative=True)
+    cmds.move(-3, 0, position_offset, right_mesh, relative=True)
     
     print(f"Left asymmetric mesh: {left_mesh} (blendshape on left side)")
     print(f"Right asymmetric mesh: {right_mesh} (blendshape on right side)")
@@ -198,46 +207,81 @@ def create_asymmetric_blendshapes(base_mesh, blendshape_source, blend_zone_width
     return left_mesh, right_mesh
 
 
-def make_asymmetric_from_selection(blend_zone_width=0.5):
+def make_asymmetric_from_selection(blend_zone_width=0.5, delete_originals=True):
     """
     Create asymmetric blendshapes from selected meshes.
-    First selection should be base mesh, second should be blendshape source.
+    First selection should be base mesh, followed by all blendshape sources.
     
     Args:
         blend_zone_width (float): Width of the blend zone for smooth transition
+        delete_originals (bool): Whether to delete the original symmetric blendshapes
     """
     selection = cmds.ls(selection=True, type='transform')
     
-    if len(selection) != 2:
-        cmds.error("Please select exactly 2 meshes: base mesh first, then blendshape source.")
+    if len(selection) < 2:
+        cmds.error("Please select at least 2 meshes: base mesh first, then blendshape sources.")
         return
     
     base_mesh = selection[0]
-    blendshape_source = selection[1]
+    blendshape_sources = selection[1:]
     
     print(f"Creating asymmetric blendshapes...")
     print(f"Base mesh: {base_mesh}")
-    print(f"Blendshape source: {blendshape_source}")
+    print(f"Blendshape sources: {blendshape_sources}")
     print(f"Blend zone width: {blend_zone_width} units")
+    print(f"Delete originals: {delete_originals}")
     
-    left_mesh, right_mesh = create_asymmetric_blendshapes(base_mesh, blendshape_source, blend_zone_width)
+    all_created_meshes = []
+    meshes_to_delete = []
     
-    if left_mesh and right_mesh:
-        # Select the new meshes
-        cmds.select([left_mesh, right_mesh], replace=True)
-        print("Asymmetric blendshapes created successfully!")
-        print("The new meshes have been selected and positioned to avoid overlap.")
+    # Process each blendshape source
+    for i, blendshape_source in enumerate(blendshape_sources):
+        print(f"\nProcessing blendshape {i+1}/{len(blendshape_sources)}: {blendshape_source}")
+        
+        # Calculate Z offset to space out multiple blendshapes
+        z_offset = i * 8  # 8 units spacing between each pair
+        
+        left_mesh, right_mesh = create_asymmetric_blendshapes(base_mesh, blendshape_source, blend_zone_width, z_offset)
+        
+        if left_mesh and right_mesh:
+            all_created_meshes.extend([left_mesh, right_mesh])
+            
+            # Mark original for deletion if requested
+            if delete_originals:
+                meshes_to_delete.append(blendshape_source)
+                
+            print(f"  Created: {left_mesh}, {right_mesh}")
+        else:
+            print(f"  Failed to create asymmetric versions for {blendshape_source}")
+    
+    # Delete original symmetric blendshapes if requested
+    if delete_originals and meshes_to_delete:
+        print(f"\nDeleting original symmetric blendshapes: {meshes_to_delete}")
+        for mesh in meshes_to_delete:
+            if cmds.objExists(mesh):
+                cmds.delete(mesh)
+                print(f"  Deleted: {mesh}")
+    
+    # Select all created meshes
+    if all_created_meshes:
+        cmds.select(all_created_meshes, replace=True)
+        print(f"\nAsymmetric blendshapes created successfully!")
+        print(f"Total created: {len(all_created_meshes)} meshes")
+        print(f"All new meshes selected and positioned to avoid overlap.")
         print(f"Smooth blending applied with {blend_zone_width} unit transition zone.")
+    else:
+        print("No asymmetric blendshapes were created.")
 
 
-def make_asymmetric_with_custom_blend(blend_zone_width=0.5):
+def make_asymmetric_with_custom_blend(blend_zone_width=0.5, delete_originals=True):
     """
     Wrapper function to easily create asymmetric blendshapes with custom blend zone.
     
     Args:
         blend_zone_width (float): Width of the blend zone (0.1 = sharp, 1.0 = very soft)
+        delete_originals (bool): Whether to delete the original symmetric blendshapes
     """
-    make_asymmetric_from_selection(blend_zone_width)
+    make_asymmetric_from_selection(blend_zone_width, delete_originals)
     
 
 def create_asymmetric_ui():
@@ -251,7 +295,7 @@ def create_asymmetric_ui():
     
     # Create window
     window = cmds.window(window_name, title="Make Asymmetric Blendshapes", 
-                        widthHeight=(420, 280), resizeToFitChildren=True)
+                        widthHeight=(420, 320), resizeToFitChildren=True)
     
     # Main layout
     main_layout = cmds.columnLayout(adjustableColumn=True, rowSpacing=5, columnOffset=('both', 10))
@@ -263,9 +307,10 @@ def create_asymmetric_ui():
     # Instructions
     cmds.text(label="Instructions:", align="left", font="boldLabelFont")
     cmds.text(label="1. Select the base mesh (e.g., pSphere1)", align="left")
-    cmds.text(label="2. Add the blendshape source to selection (e.g., pSphere2)", align="left")
+    cmds.text(label="2. Add all blendshape sources to selection (e.g., pSphere2, pSphere3...)", align="left")
     cmds.text(label="3. Adjust blend zone width if needed", align="left")
-    cmds.text(label="4. Click 'Create Asymmetric Blendshapes'", align="left")
+    cmds.text(label="4. Choose whether to delete original blendshapes", align="left")
+    cmds.text(label="5. Click 'Create Asymmetric Blendshapes'", align="left")
     cmds.separator(height=15)
     
     # Blend zone controls
@@ -288,12 +333,19 @@ def create_asymmetric_ui():
                command=lambda x: cmds.floatField(blend_field, edit=True, value=1.0))
     cmds.setParent('..')
     
+    # Options
+    cmds.separator(height=15)
+    cmds.text(label="Options:", align="left", font="boldLabelFont")
+    delete_checkbox = cmds.checkBox(label="Delete original symmetric blendshapes", value=True,
+                                   annotation="Remove the original blendshape sources after creating asymmetric versions")
+    
     cmds.separator(height=15)
     
     # Main action button
     def create_with_blend_zone(*args):
         blend_width = cmds.floatField(blend_field, query=True, value=True)
-        make_asymmetric_from_selection(blend_width)
+        delete_originals = cmds.checkBox(delete_checkbox, query=True, value=True)
+        make_asymmetric_from_selection(blend_width, delete_originals)
     
     cmds.button(label="Create Asymmetric Blendshapes", height=40,
                backgroundColor=[0.4, 0.6, 0.4],
@@ -312,21 +364,40 @@ def create_asymmetric_ui():
 def example_with_spheres():
     """
     Example function that creates test spheres and demonstrates the tool.
+    Creates a base sphere and multiple blendshape sources.
     """
     # Create base sphere
     base_sphere = cmds.polySphere(name="pSphere1")[0]
     
-    # Create blendshape source sphere with some deformation
-    blend_sphere = cmds.polySphere(name="pSphere2")[0]
+    # Create multiple blendshape source spheres with different deformations
+    blend_spheres = []
     
-    # Add some deformation to the blendshape source
-    cmds.select(f"{blend_sphere}.vtx[200:220]")  # Select some vertices
-    cmds.move(0, 1, 0, relative=True)  # Move them up
+    # Blendshape 1: Move vertices up
+    blend_sphere1 = cmds.polySphere(name="pSphere2")[0]
+    cmds.select(f"{blend_sphere1}.vtx[200:220]")
+    cmds.move(0, 1, 0, relative=True)
+    blend_spheres.append(blend_sphere1)
     
-    # Select both spheres
-    cmds.select([base_sphere, blend_sphere], replace=True)
+    # Blendshape 2: Scale vertices outward
+    blend_sphere2 = cmds.polySphere(name="pSphere3")[0]
+    cmds.select(f"{blend_sphere2}.vtx[180:200]")
+    cmds.scale(1.5, 1.5, 1.5, relative=True)
+    blend_spheres.append(blend_sphere2)
     
-    print("Example spheres created. Run make_asymmetric_from_selection() to test.")
+    # Blendshape 3: Move vertices inward
+    blend_sphere3 = cmds.polySphere(name="pSphere4")[0]
+    cmds.select(f"{blend_sphere3}.vtx[240:260]")
+    cmds.move(0, 0, -0.5, relative=True)
+    blend_spheres.append(blend_sphere3)
+    
+    # Select base and all blendshapes
+    all_spheres = [base_sphere] + blend_spheres
+    cmds.select(all_spheres, replace=True)
+    
+    print(f"Example spheres created:")
+    print(f"  Base: {base_sphere}")
+    print(f"  Blendshapes: {blend_spheres}")
+    print("All spheres selected. Run make_asymmetric_from_selection() to test.")
 
 
 def create_blend_zone_visualization(mesh_name, blend_zone_width=0.5):
