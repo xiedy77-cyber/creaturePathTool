@@ -3479,44 +3479,62 @@ class CycleMakerUI:
     # Actions: Spine inversion pass
     # ---------------------
 
-    def _detect_selected_keyframe_half(self):
+    def _get_selected_curves_info(self):
         """
-        Detect which half of the timeline the selected keyframes are in.
-        Returns: 'first', 'second', or 'default' (for whole curve/no selection)
+        Get information about which curves have selected keyframes and in which half.
+        Returns: dict with curve names as keys and direction info as values
         """
         try:
-            # Get selected keyframes from graph editor
-            selected_keys = cmds.keyframe(query=True, selected=True, timeChange=True) or []
+            # Get selected curves from graph editor
+            selected_curves = cmds.keyframe(query=True, selected=True, name=True) or []
             
-            if not selected_keys:
-                # No keyframes selected, use default behavior
-                return 'default'
+            if not selected_curves:
+                # No keyframes selected, return empty dict (will use default behavior)
+                return {}
             
             # Get timeline range
             start, end, mid = self._playback_cycle_range()
             
-            # Analyze where most selected keys are located
-            first_half_count = 0
-            second_half_count = 0
+            curve_info = {}
             
-            for key_time in selected_keys:
-                if key_time <= mid:
-                    first_half_count += 1
-                else:
-                    second_half_count += 1
+            for curve in selected_curves:
+                try:
+                    # Get selected keyframe times for this specific curve
+                    selected_times = cmds.keyframe(curve, query=True, selected=True, timeChange=True) or []
+                    
+                    if not selected_times:
+                        continue
+                    
+                    # Analyze where most selected keys are located for this curve
+                    first_half_count = 0
+                    second_half_count = 0
+                    
+                    for key_time in selected_times:
+                        if key_time <= mid:
+                            first_half_count += 1
+                        else:
+                            second_half_count += 1
+                    
+                    # Determine which half has more selected keys for this curve
+                    if first_half_count > second_half_count:
+                        direction = 'first'
+                    elif second_half_count > first_half_count:
+                        direction = 'second'
+                    else:
+                        # Equal or unclear, use default
+                        direction = 'default'
+                    
+                    curve_info[curve] = direction
+                    
+                except Exception as e:
+                    print(f"Error processing curve {curve}: {e}")
+                    continue
             
-            # Determine which half has more selected keys
-            if first_half_count > second_half_count:
-                return 'first'
-            elif second_half_count > first_half_count:
-                return 'second'
-            else:
-                # Equal or unclear, use default
-                return 'default'
+            return curve_info
                 
         except Exception as e:
-            print(f"Error detecting keyframe selection: {e}")
-            return 'default'
+            print(f"Error detecting selected curves: {e}")
+            return {}
 
     def invert_spine_channels(self, *_):
         """
@@ -3529,8 +3547,8 @@ class CycleMakerUI:
         - rotateY, rotateZ, translateX, translateZ: antiphase (inverted copy)
         - rotateX, translateY: standard cycle (direct copy)
         """
-        # Detect which half of timeline has selected keyframes
-        keyframe_half = self._detect_selected_keyframe_half()
+        # Get information about selected curves and their keyframe locations
+        selected_curves_info = self._get_selected_curves_info()
         
         # Check for selected objects first
         sel = cmds.ls(selection=True) or []
@@ -3539,7 +3557,6 @@ class CycleMakerUI:
         if sel:
             # Use selected objects (work with any selection, not just spine controls list)
             print(f"Processing selected objects for spine cycling: {sel}")
-            print(f"Keyframe selection detected in: {keyframe_half} half")
         else:
             # Fall back to all spine controls if nothing selected
             if not spine_controls:
@@ -3547,7 +3564,11 @@ class CycleMakerUI:
                 return
             sel = spine_controls
             print(f"No objects selected. Processing all spine controls: {sel}")
-            print(f"Keyframe selection detected in: {keyframe_half} half")
+        
+        if selected_curves_info:
+            print(f"Will process only curves with selected keyframes: {list(selected_curves_info.keys())}")
+        else:
+            print("No keyframes selected - will process all channels with default behavior")
             
         try:
             invert_y = cmds.checkBox(self.invert_y_chk, query=True, value=True)
@@ -3580,11 +3601,25 @@ class CycleMakerUI:
                         continue
                 except Exception:
                     continue
-                if not self._anim_curve_for_attr(plug):
+                
+                # Get the animation curve for this plug
+                anim_curve = self._anim_curve_for_attr(plug)
+                if not anim_curve:
                     continue
                 
-                # Apply directional cycling based on keyframe selection
-                if keyframe_half == 'second':
+                # Check if this specific curve has selected keyframes
+                if selected_curves_info and anim_curve not in selected_curves_info:
+                    # Skip curves that don't have selected keyframes
+                    continue
+                
+                # Determine direction for this specific curve
+                if selected_curves_info and anim_curve in selected_curves_info:
+                    curve_direction = selected_curves_info[anim_curve]
+                else:
+                    curve_direction = 'default'
+                
+                # Apply directional cycling based on this curve's keyframe selection
+                if curve_direction == 'second':
                     # Copy from second half to first half (inverted)
                     self._rebuild_first_half_antiphase(plug, start, mid, end)
                     direction_msg = "second → first (inverted)"
@@ -3608,11 +3643,25 @@ class CycleMakerUI:
                         continue
                 except Exception:
                     continue
-                if not self._anim_curve_for_attr(plug):
+                
+                # Get the animation curve for this plug
+                anim_curve = self._anim_curve_for_attr(plug)
+                if not anim_curve:
                     continue
                 
-                # Apply directional cycling based on keyframe selection
-                if keyframe_half == 'second':
+                # Check if this specific curve has selected keyframes
+                if selected_curves_info and anim_curve not in selected_curves_info:
+                    # Skip curves that don't have selected keyframes
+                    continue
+                
+                # Determine direction for this specific curve
+                if selected_curves_info and anim_curve in selected_curves_info:
+                    curve_direction = selected_curves_info[anim_curve]
+                else:
+                    curve_direction = 'default'
+                
+                # Apply directional cycling based on this curve's keyframe selection
+                if curve_direction == 'second':
                     # Copy from second half to first half (direct)
                     self._rebuild_first_half_standard(plug, start, mid, end)
                     direction_msg = "second → first (direct)"
