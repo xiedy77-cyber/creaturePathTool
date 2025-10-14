@@ -161,14 +161,13 @@ class CycleMakerUI:
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(320, 120), height=22)
         # Controls header section
         cmds.rowLayout(numberOfColumns=3, columnWidth3=(135, 50, 135))
-        cmds.text(label="Left Control", align="center", font="boldLabelFont", height=20,
-                 backgroundColor=(0.4, 0.45, 0.48))
+        cmds.text(label="", align="center", height=20)
         cmds.text(label="", width=50)  # Empty space above swap button
-        cmds.text(label="Right Control", align="center", font="boldLabelFont", height=20,
-                 backgroundColor=(0.4, 0.45, 0.48))
+        cmds.text(label="", align="center", height=20)
         cmds.setParent('..')  # controls header
         # Channel headers section - matching individual row structure
-        cmds.rowLayout(numberOfColumns=5, columnWidth5=(20, 20, 20, 20, 60))
+        cmds.rowLayout(numberOfColumns=6, columnWidth6=(3, 20, 20, 20, 20, 60))
+        cmds.text(label="", width=3)  # 3 pixel spacer
         cmds.text(label="TX", align="center", font="smallPlainLabelFont", height=20,
                  backgroundColor=(0.4, 0.4, 0.4))
         cmds.text(label="TY", align="center", font="smallPlainLabelFont", height=20,
@@ -177,7 +176,8 @@ class CycleMakerUI:
                  backgroundColor=(0.4, 0.4, 0.4))
         cmds.text(label="RX", align="center", font="smallPlainLabelFont", height=20,
                  backgroundColor=(0.4, 0.4, 0.4))
-        cmds.rowLayout(numberOfColumns=3, columnWidth3=(20, 20, 20))
+        cmds.rowLayout(numberOfColumns=4, columnWidth4=(1, 20, 20, 20))
+        cmds.text(label="", width=1)  # 1 pixel spacer
         cmds.text(label="RY", align="center", font="smallPlainLabelFont", height=20,
                  backgroundColor=(0.4, 0.4, 0.4))
         cmds.text(label="RZ", align="center", font="smallPlainLabelFont", height=20,
@@ -190,16 +190,17 @@ class CycleMakerUI:
         # Bulk editing controls - using EXACT same structure as individual rows
         cmds.rowLayout(numberOfColumns=2, columnWidth2=(320, 120), height=22)
         # Controls section - same structure as individual pairs
-        cmds.rowLayout(numberOfColumns=3, columnWidth3=(135, 50, 135))
-        cmds.text(label="Bulk Operations", align="center", font="boldLabelFont", height=20)
-        cmds.button(label="⇄", width=50, height=20,
+        cmds.rowLayout(numberOfColumns=3, columnWidth3=(138, 50, 135))
+        cmds.text(label="", align="center", height=20)
+        cmds.button(label="→", width=50, height=20,
                    backgroundColor=(0.6, 0.4, 0.6),
                    annotation="Swap all left/right control pairs",
                    command=self._swap_all_control_pairs)
-        cmds.text(label="(Apply to All)", align="center", font="boldLabelFont", height=20)
+        cmds.text(label="", align="center", height=20)
         cmds.setParent('..')  # bulk controls section
         # Checkboxes section - matching individual row structure exactly
-        cmds.rowLayout(numberOfColumns=5, columnWidth5=(20, 20, 20, 20, 60))
+        cmds.rowLayout(numberOfColumns=6, columnWidth6=(3, 20, 20, 20, 20, 60))
+        cmds.text(label="", width=3)  # 3 pixel spacer
         self.bulk_tx_chk = cmds.checkBox(label='', value=False, height=20,
                                         changeCommand=lambda x: self._set_all_inversions('tx', x))
         self.bulk_ty_chk = cmds.checkBox(label='', value=False, height=20,
@@ -208,7 +209,8 @@ class CycleMakerUI:
                                         changeCommand=lambda x: self._set_all_inversions('tz', x))
         self.bulk_rx_chk = cmds.checkBox(label='', value=False, height=20,
                                         changeCommand=lambda x: self._set_all_inversions('rx', x))
-        cmds.rowLayout(numberOfColumns=3, columnWidth3=(20, 20, 20))
+        cmds.rowLayout(numberOfColumns=4, columnWidth4=(1, 20, 20, 20))
+        cmds.text(label="", width=1)  # 1 pixel spacer
         self.bulk_ry_chk = cmds.checkBox(label='', value=False, height=20,
                                         changeCommand=lambda x: self._set_all_inversions('ry', x))
         self.bulk_rz_chk = cmds.checkBox(label='', value=False, height=20,
@@ -251,8 +253,8 @@ class CycleMakerUI:
         cmds.columnLayout(adjustableColumn=True, rowSpacing=3)
         
         # Headers row for spine controls
-        cmds.rowLayout(numberOfColumns=6, columnWidth6=(322, 20, 20, 20, 20, 60), height=22)
-        cmds.text(label="", width=322)  # Empty space above control name
+        cmds.rowLayout(numberOfColumns=6, columnWidth6=(250, 20, 20, 20, 20, 72), height=22)
+        cmds.text(label="", width=250)  # Empty space above control name
         cmds.text(label="TX", align="center", font="smallPlainLabelFont", height=22)
         cmds.text(label="TY", align="center", font="smallPlainLabelFont", height=22)
         cmds.text(label="TZ", align="center", font="smallPlainLabelFont", height=22)
@@ -330,7 +332,7 @@ class CycleMakerUI:
         cmds.text(label=left_display, align="center", annotation=left_ctrl)
         
         # Direction swap button (shows bidirectional swap and allows swapping)
-        cmds.button(label="⇄", width=50, height=20,
+        cmds.button(label="→", width=50, height=20,
                    backgroundColor=(0.6, 0.4, 0.6),
                    annotation="Click to swap left/right controls",
                    command=lambda x, idx=index: self._swap_control_pair(idx))
