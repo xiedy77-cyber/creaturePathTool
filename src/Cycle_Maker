@@ -80,8 +80,7 @@ class CycleMakerUI:
         self.wing_left_controls = []
         self.wing_right_controls = []
         self.wing_control_inversions = []
-        self.invert_y_chk = None
-        self.invert_z_chk = None
+
         self.spine_keywords_default = [
             'spine', 'chest', 'torso', 'back', 'hip', 'pelvis', 'waist', 'abdomen',
             'cog', 'root', 'body', 'head', 'tail'
@@ -1411,20 +1410,30 @@ class CycleMakerUI:
             print(f"Removed {obj_name} from Copy with Offset list")
 
     def _should_invert_for_spine(self, node_name, attr):
-        """True if node matches spine controls list and attr is selected for inversion (rotateY/rotateZ)."""
+        """True if node matches spine controls list and attr should be asymmetrical (based on forward direction)."""
         spine_controls = self._get_spine_controls()
         if node_name not in spine_controls:
             return False
-        try:
-            invert_y = cmds.checkBox(self.invert_y_chk, query=True, value=True)
-            invert_z = cmds.checkBox(self.invert_z_chk, query=True, value=True)
-        except Exception:
-            invert_y = self.spine_invert_y_default
-            invert_z = self.spine_invert_z_default
-        if attr == 'rotateY' and invert_y:
+        
+        # Use intelligent channel categorization based on settings
+        rotation_axis = self.forward_rotation_axis  # From settings: 'X', 'Y', or 'Z'
+        
+        # Translation channels: X is always asymmetrical, Y and Z are double cycle
+        if attr == 'translateX':
             return True
-        if attr == 'rotateZ' and invert_z:
-            return True
+        if attr in ['translateY', 'translateZ']:
+            return False
+            
+        # Rotation channels based on forward rotation axis:
+        # - Forward rotation axis: Double cycle (not inverted)
+        # - Other two axes: Asymmetrical (inverted)
+        if rotation_axis == 'X':
+            return attr in ['rotateY', 'rotateZ']  # Y and Z are asymmetrical
+        elif rotation_axis == 'Y':
+            return attr in ['rotateX', 'rotateZ']  # X and Z are asymmetrical
+        else:  # rotation_axis == 'Z'
+            return attr in ['rotateX', 'rotateY']  # X and Y are asymmetrical
+            
         return False
 
     # =========================================================================
@@ -1695,6 +1704,23 @@ class CycleMakerUI:
 
     def _rebuild_second_half_antiphase(self, plug, start, mid, end):
         """Make [mid,end] equal to the negative of [start,mid] for the given plug."""
+        # Validate that there are keyframes to work with
+        try:
+            all_keyframes = cmds.keyframe(plug, query=True, timeChange=True) or []
+            if not all_keyframes:
+                cmds.warning(f"No keyframes found on {plug}. Cannot perform antiphase operation.")
+                return
+            
+            # Check if there are any keyframes in the first half to copy from
+            first_half_keys = [t for t in all_keyframes if start <= t < mid]
+            if not first_half_keys:
+                cmds.warning(f"No keyframes found in first half [{start}, {mid}) on {plug}. Cannot perform antiphase operation.")
+                return
+                
+        except Exception as e:
+            cmds.warning(f"Error checking keyframes on {plug}: {e}")
+            return
+            
         # Anchor values
         try:
             v_start = cmds.getAttr(plug, time=start)
@@ -1744,13 +1770,16 @@ class CycleMakerUI:
         except Exception as e:
             cmds.warning(f"scaleKey invert failed on {plug}: {e}")
 
-        # Enforce anchors: end==start, mid==-start
+        # Enforce anchors for proper antiphase symmetry
         try:
             if v_start is None:
                 v_start = cmds.getAttr(plug, time=start)
         except Exception:
             v_start = 0.0
-        self._ensure_key(plug, mid, -float(v_start))
+        
+        # For proper antiphase cycles: start and end have same value, midpoint is inverse
+        # This creates perfect symmetrical inversion where mid is opposite of start/end
+        self._ensure_key(plug, mid, float(-v_start))
         self._ensure_key(plug, end, float(v_start))
 
         # Apply tangent smoothing for spine antiphase cycles
@@ -3396,8 +3425,7 @@ class CycleMakerUI:
                 'right_controls': self.right_controls[:],
                 'control_inversions': self.control_inversions[:],
                 'spine_controls': self._get_spine_controls(),
-                'spine_invert_y': cmds.checkBox(self.invert_y_chk, query=True, value=True),
-                'spine_invert_z': cmds.checkBox(self.invert_z_chk, query=True, value=True)
+
             },
             'copy_with_offset': {
                 'objects': self.copy_offset_objects[:],
@@ -3453,11 +3481,8 @@ class CycleMakerUI:
                     for control in spine_controls:
                         cmds.textScrollList(self.spine_controls_list, edit=True, append=control)
                 
-                # Load spine invert settings
-                spine_invert_y = cm_data.get('spine_invert_y', True)
-                spine_invert_z = cm_data.get('spine_invert_z', True)
-                cmds.checkBox(self.invert_y_chk, edit=True, value=spine_invert_y)
-                cmds.checkBox(self.invert_z_chk, edit=True, value=spine_invert_z)
+                # Note: Spine invert settings are now automatic based on forward direction
+                # No longer need manual checkbox settings
             
             # Load Copy with Offset data
             if 'copy_with_offset' in preset_data:
@@ -3582,14 +3607,37 @@ class CycleMakerUI:
             cmds.warning("Invalid playback range. Set a valid range (e.g., 0 to 40).")
             return
 
-        # Define which channels get which type of cycling
-        antiphase_attrs = []
-        if invert_y:
-            antiphase_attrs.append("rotateY")
-        if invert_z:
-            antiphase_attrs.append("rotateZ")
-        antiphase_attrs += ["translateX"]
-        standard_attrs = ["rotateX", "translateY", "translateZ"]
+        # Intelligent channel categorization based on settings
+        travel_direction = self.forward_direction      # Travel direction: 'X', 'Y', or 'Z'
+        rotation_axis = self.forward_rotation_axis     # Spine rotation axis: 'X', 'Y', or 'Z'
+        
+        # Translation channels:
+        # - Y (up/down): Always double cycle (up-down-up-down per walk cycle)  
+        # - Z (forward): Always double cycle (continuous forward movement with variations)
+        # - X (side): Always asymmetrical (left step vs right step)
+        double_cycle_translate = ["translateY", "translateZ"]
+        asymmetrical_translate = ["translateX"]
+        
+        # Rotation channels based on forward rotation axis:
+        # - Forward rotation axis: Double cycle (forward/back rocking with each step)
+        # - Other two axes: Asymmetrical (left vs right step creates different twisting)
+        if rotation_axis == 'X':
+            double_cycle_rotate = ["rotateX"]
+            asymmetrical_rotate = ["rotateY", "rotateZ"]
+        elif rotation_axis == 'Y':
+            double_cycle_rotate = ["rotateY"] 
+            asymmetrical_rotate = ["rotateX", "rotateZ"]
+        else:  # rotation_axis == 'Z'
+            double_cycle_rotate = ["rotateZ"]
+            asymmetrical_rotate = ["rotateX", "rotateY"]
+        
+        # Combine channel lists
+        antiphase_attrs = asymmetrical_translate + asymmetrical_rotate  # Channels that get inverted
+        standard_attrs = double_cycle_translate + double_cycle_rotate   # Channels that get direct copy
+        
+        print(f"Travel direction: {travel_direction}, Rotation axis: {rotation_axis}")
+        print(f"Asymmetrical (inverted) channels: {antiphase_attrs}")
+        print(f"Double cycle (direct copy) channels: {standard_attrs}")
 
         count = 0
         for node in sel:
@@ -3753,6 +3801,23 @@ class CycleMakerUI:
         Make [start,mid] equal to the negative of [mid,end] for the given plug.
         (Reverse direction antiphase - copy from second half to first half)
         """
+        # Validate that there are keyframes to work with
+        try:
+            all_keyframes = cmds.keyframe(plug, query=True, timeChange=True) or []
+            if not all_keyframes:
+                cmds.warning(f"No keyframes found on {plug}. Cannot perform antiphase operation.")
+                return
+            
+            # Check if there are any keyframes in the second half to copy from
+            second_half_keys = [t for t in all_keyframes if mid <= t <= end]
+            if not second_half_keys:
+                cmds.warning(f"No keyframes found in second half [{mid}, {end}] on {plug}. Cannot perform antiphase operation.")
+                return
+                
+        except Exception as e:
+            cmds.warning(f"Error checking keyframes on {plug}: {e}")
+            return
+            
         # Anchor values
         try:
             v_end = cmds.getAttr(plug, time=end)
@@ -3800,14 +3865,17 @@ class CycleMakerUI:
         except Exception as e:
             cmds.warning(f"scaleKey failed on {plug}: {e}")
 
-        # Enforce anchors: start==end, mid==end
+        # Enforce anchors for proper antiphase symmetry
         try:
             if v_end is None:
                 v_end = cmds.getAttr(plug, time=end)
         except Exception:
             v_end = 0.0
+        
+        # For proper antiphase cycles: start and end have same value, midpoint is inverse
+        # This creates perfect symmetrical inversion where mid is opposite of start/end
         self._ensure_key(plug, start, float(v_end))
-        self._ensure_key(plug, mid, float(v_end))
+        self._ensure_key(plug, mid, float(-v_end))
 
         # Apply tangent smoothing for spine antiphase cycles
         self._smooth_spine_transitions(plug, start, mid, end, is_antiphase=True)
